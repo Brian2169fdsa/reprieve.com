@@ -1,0 +1,105 @@
+"use client"
+
+import { useState } from "react"
+
+export interface CalendarEventProps {
+  id: string
+  label: string
+  status: string
+  standard: string
+  dueDate: string
+  assignedTo: string
+}
+
+const STATUS_STYLES: Record<string, { dot: string; bg: string; text: string }> = {
+  info:        { dot: "#3BA7C9", bg: "#E8F6FA", text: "#2A8BA8" },
+  passed:      { dot: "#16A34A", bg: "#DCFCE7", text: "#15803D" },
+  failed:      { dot: "#DC2626", bg: "#FEE2E2", text: "#DC2626" },
+  overdue:     { dot: "#DC2626", bg: "#FEE2E2", text: "#B91C1C" },
+  pending:     { dot: "#D97706", bg: "#FEF3C7", text: "#B45309" },
+  in_progress: { dot: "#3BA7C9", bg: "#E8F6FA", text: "#2A8BA8" },
+  skipped:     { dot: "#A3A3A3", bg: "#F5F5F5", text: "#737373" },
+}
+
+export default function CalendarEvent({ id, label, status, standard, dueDate, assignedTo }: CalendarEventProps) {
+  const [hovered, setHovered] = useState(false)
+  const s = STATUS_STYLES[status] ?? STATUS_STYLES.pending
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "4px",
+          padding: "2px 6px",
+          borderRadius: "4px",
+          background: s.bg,
+          cursor: "pointer",
+          maxWidth: "100%",
+          overflow: "hidden",
+        }}
+      >
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: s.dot,
+            flexShrink: 0,
+          }}
+        />
+        <span
+          style={{
+            fontSize: "11px",
+            fontWeight: 500,
+            color: s.text,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            lineHeight: "1.4",
+          }}
+        >
+          {label}
+        </span>
+      </div>
+
+      {hovered && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            zIndex: 100,
+            marginTop: 4,
+            background: "#1F2937",
+            color: "#F9FAFB",
+            borderRadius: "8px",
+            padding: "10px 12px",
+            minWidth: 190,
+            maxWidth: 230,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ fontWeight: 600, fontSize: "12px", marginBottom: 6, lineHeight: 1.4 }}>
+            {label}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            <div style={{ fontSize: "11px", color: "#9CA3AF" }}>
+              <span style={{ color: "#D1D5DB" }}>Standard:</span> {standard}
+            </div>
+            <div style={{ fontSize: "11px", color: "#9CA3AF" }}>
+              <span style={{ color: "#D1D5DB" }}>Due:</span> {dueDate}
+            </div>
+            <div style={{ fontSize: "11px", color: "#9CA3AF" }}>
+              <span style={{ color: "#D1D5DB" }}>Assigned:</span> {assignedTo}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
