@@ -185,10 +185,10 @@ export default function ApprovalsPage() {
           code: p.code,
           title: p.title,
           category: p.category,
-          submittedBy: (p.owner as { full_name: string } | null)?.full_name ?? 'Unknown',
+          submittedBy: (p.owner as unknown as { full_name: string } | null)?.full_name ?? 'Unknown',
           submittedAt: new Date(p.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-          changeSummary: (p.current_version as { change_summary: string } | null)?.change_summary ?? 'No change summary',
-          contentPreview: (p.current_version as { content_html: string } | null)?.content_html?.replace(/<[^>]+>/g, ' ').slice(0, 300) ?? '',
+          changeSummary: (p.current_version as unknown as { change_summary: string } | null)?.change_summary ?? 'No change summary',
+          contentPreview: (p.current_version as unknown as { content_html: string } | null)?.content_html?.replace(/<[^>]+>/g, ' ').slice(0, 300) ?? '',
           status: 'pending',
         }));
         setPolicies(mapped);
