@@ -77,8 +77,8 @@
   --color-red-light: #fef2f2;
 
   /* Fonts */
-  --font-sans: var(--font-source-sans-3);
-  --font-serif: var(--font-source-serif-4);
+  --font-sans: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
 }
 
 /* ─────────────────────────────────────────────────────

@@ -1,18 +1,5 @@
 import type { Metadata } from "next";
-import { Source_Sans_3, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
-
-const sourceSans3 = Source_Sans_3({
-  variable: "--font-source-sans-3",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const sourceSerif4 = Source_Serif_4({
-  variable: "--font-source-serif-4",
-  subsets: ["latin"],
-  weight: ["600", "700"],
-});
 
 export const metadata: Metadata = {
   title: "REPrieve.ai™ — Compliance Operating System",
@@ -27,9 +14,22 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body
-        className={`${sourceSans3.variable} ${sourceSerif4.variable} font-sans antialiased`}
-      >
+      <head>
+        <link
+          rel="preconnect"
+          href="https://fonts.googleapis.com"
+        />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&family=Source+Serif+4:wght@600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="font-sans antialiased">
         {children}
       </body>
     </html>
