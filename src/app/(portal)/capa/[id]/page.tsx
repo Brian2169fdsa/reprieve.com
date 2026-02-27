@@ -1,101 +1,43 @@
 'use client';
 
-import { use, useState } from 'react';
+import { use, useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import type { CAPAStatus } from '@/lib/types';
+import type { CAPAStatus, OrgRole } from '@/lib/types';
 
-const ORG_MEMBERS = ['James Williams', 'Sarah Chen', 'Maria Rodriguez', 'David Kim', 'Wayne Giles'];
+interface OrgMemberOption {
+  user_id: string;
+  full_name: string;
+}
 
 interface TimelineEntry {
-  date: string;
+  id: string;
   action: string;
-  by: string;
+  created_at: string;
+  user_name: string;
   color: string;
 }
 
 interface CAPADetail {
   id: string;
-  code: string;
   title: string;
   description: string;
-  rootCause: string;
-  correctiveAction: string;
-  preventiveAction: string;
-  owner: string;
+  root_cause: string;
+  corrective_action: string;
+  preventive_action: string;
+  owner_id: string | null;
+  owner_name: string;
   status: CAPAStatus;
-  dueDate: string;
+  due_date: string;
   severity: string;
   standard: string;
-  finding: string;
-  verifiedBy?: string;
-  verifiedAt?: string;
-  verificationNotes?: string;
-  timeline: TimelineEntry[];
+  finding_title: string;
+  verified_by_name?: string;
+  verified_at?: string;
+  verification_notes?: string;
+  org_id: string;
+  created_at: string;
 }
-
-const SEED_CAPAS: Record<string, CAPADetail> = {
-  '1': {
-    id: '1',
-    code: 'CAPA-2026-003',
-    title: 'Medication storage temperature logging gaps',
-    description: 'Daily temperature logs for medication storage refrigerators were not consistently maintained during January–February 2026, creating a gap in required AHCCCS documentation.',
-    rootCause: 'No designated staff member assigned as primary + backup for daily temperature logging. When primary staff is out, logging falls through the cracks.',
-    correctiveAction: 'Assign James Williams as primary and Maria Rodriguez as backup for daily temperature logging. Procure digital temperature logging device to automate readings. Implement shared reminder in team calendar.',
-    preventiveAction: 'Add temperature logging to onboarding checklist for all clinical staff. Schedule quarterly audits of temperature log completeness. Consider IoT-based automatic logging for Residential facility.',
-    owner: 'James Williams',
-    status: 'overdue',
-    dueDate: '2026-02-20',
-    severity: 'critical',
-    standard: 'AHCCCS',
-    finding: 'Medication Storage Temperature Log — Missing 11 entries Jan–Feb 2026',
-    timeline: [
-      { date: 'Feb 10, 2026', action: 'CAPA created by Sarah Chen', by: 'Sarah Chen', color: '#3BA7C9' },
-      { date: 'Feb 10, 2026', action: 'Assigned to James Williams with Feb 20 due date', by: 'Wayne Giles', color: '#3BA7C9' },
-      { date: 'Feb 20, 2026', action: 'Due date passed — no update from owner', by: 'System', color: '#DC2626' },
-      { date: 'Feb 21, 2026', action: 'Status changed to Overdue by system', by: 'System', color: '#DC2626' },
-    ],
-  },
-  '2': {
-    id: '2',
-    code: 'CAPA-2026-004',
-    title: 'Telehealth consent form update needed',
-    description: 'The current consent form does not include digital/telehealth-specific consent language required by updated HIPAA guidance and the new Telehealth Service Delivery policy (POL-CLN-002).',
-    rootCause: 'Policy POL-CLN-002 was drafted without a corresponding update to the consent form template. Policy update and form update should be synchronized but were not tracked as dependent tasks.',
-    correctiveAction: 'Revise the standard consent form to include telehealth-specific consent language (recording policy, platform used, right to decline). Route revised form through standard approval workflow.',
-    preventiveAction: 'Add "affected forms" checklist item to policy update workflow. During policy review, compliance officer must identify all forms that reference the policy and flag them for simultaneous update.',
-    owner: 'Sarah Chen',
-    status: 'in_progress',
-    dueDate: '2026-03-10',
-    severity: 'medium',
-    standard: 'HIPAA',
-    finding: 'Telehealth ↔ Consent Policy Cross-Reference Gap (Policy Guardian)',
-    timeline: [
-      { date: 'Feb 24, 2026', action: 'CAPA created from Policy Guardian AI suggestion', by: 'Sarah Chen', color: '#3BA7C9' },
-      { date: 'Feb 24, 2026', action: 'Assigned to Sarah Chen with Mar 10 due date', by: 'Wayne Giles', color: '#3BA7C9' },
-      { date: 'Feb 25, 2026', action: 'Status updated to In Progress', by: 'Sarah Chen', color: '#D97706' },
-    ],
-  },
-  '3': {
-    id: '3',
-    code: 'CAPA-2026-005',
-    title: 'Fire drill documentation gap',
-    description: 'February 10 fire drill at Residential facility was conducted but the documentation is incomplete — attendance signatures missing for 4 staff members, and the drill completion form was not submitted to compliance.',
-    rootCause: 'Fire drill was conducted across two shifts but only the day-shift supervisor had the documentation packet. Night-shift staff participation was not captured.',
-    correctiveAction: 'Conduct a new documented fire drill with all-shift participation by March 15. Ensure both shifts sign the attendance roster. Submit completed forms to Sarah Chen within 24 hours.',
-    preventiveAction: 'Create a drill coordination checklist that requires supervisor sign-off confirming all shifts have been accounted for. Store drill forms digitally in Supabase Storage immediately after completion.',
-    owner: 'Maria Rodriguez',
-    status: 'open',
-    dueDate: '2026-03-15',
-    severity: 'high',
-    standard: 'Safety',
-    finding: 'Fire Drill Not Conducted — SAFE-FD-001 Feb 2026',
-    timeline: [
-      { date: 'Feb 25, 2026', action: 'CAPA created from QM Finding', by: 'Wayne Giles', color: '#3BA7C9' },
-      { date: 'Feb 25, 2026', action: 'Assigned to Maria Rodriguez with Mar 15 due date', by: 'Wayne Giles', color: '#3BA7C9' },
-    ],
-  },
-};
 
 const STATUS_FLOW: CAPAStatus[] = ['open', 'in_progress', 'pending_verification', 'closed'];
 const STATUS_LABELS: Record<string, string> = {
@@ -121,101 +63,294 @@ const SEV_STYLES: Record<string, { bg: string; color: string }> = {
 
 export default function CAPADetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const seed = SEED_CAPAS[id] ?? SEED_CAPAS['1'];
 
-  const [capa, setCapa] = useState<CAPADetail>(seed);
+  const [capa, setCapa] = useState<CAPADetail | null>(null);
+  const [orgMembers, setOrgMembers] = useState<OrgMemberOption[]>([]);
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [userRole, setUserRole] = useState<OrgRole | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserName, setCurrentUserName] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [isAdvancing, setIsAdvancing] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // Edit form state
-  const [editTitle, setEditTitle] = useState(capa.title);
-  const [editDesc, setEditDesc] = useState(capa.description);
-  const [editRootCause, setEditRootCause] = useState(capa.rootCause);
-  const [editCorrective, setEditCorrective] = useState(capa.correctiveAction);
-  const [editPreventive, setEditPreventive] = useState(capa.preventiveAction);
-  const [editOwner, setEditOwner] = useState(capa.owner);
-  const [editDue, setEditDue] = useState(capa.dueDate);
-
-  // Verification state
+  const [editTitle, setEditTitle] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editRootCause, setEditRootCause] = useState('');
+  const [editCorrective, setEditCorrective] = useState('');
+  const [editPreventive, setEditPreventive] = useState('');
+  const [editOwnerId, setEditOwnerId] = useState('');
+  const [editDue, setEditDue] = useState('');
   const [verifyNotes, setVerifyNotes] = useState('');
 
   function showToast(msg: string) {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    setTimeout(() => setToast(null), 3500);
+  }
+
+  const loadData = useCallback(async () => {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setIsLoading(false); return; }
+    setCurrentUserId(user.id);
+
+    const { data: memberData } = await supabase
+      .from('org_members')
+      .select('org_id, role, profile:profiles!user_id(full_name)')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .single();
+
+    if (!memberData) { setIsLoading(false); return; }
+    setUserRole(memberData.role as OrgRole);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setCurrentUserName((memberData as any).profile?.full_name ?? 'Unknown');
+
+    const { data: capaData, error: capaError } = await supabase
+      .from('capas')
+      .select(`
+        *,
+        owner:profiles!owner_id(id, full_name),
+        finding:findings(title, severity, standard),
+        verifier:profiles!verified_by(full_name)
+      `)
+      .eq('id', id)
+      .eq('org_id', memberData.org_id)
+      .single();
+
+    if (capaError || !capaData) {
+      setNotFound(true);
+      setIsLoading(false);
+      return;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d = capaData as any;
+    const detail: CAPADetail = {
+      id: d.id,
+      title: d.title ?? '',
+      description: d.description ?? '',
+      root_cause: d.root_cause ?? '',
+      corrective_action: d.corrective_action ?? '',
+      preventive_action: d.preventive_action ?? '',
+      owner_id: d.owner_id ?? null,
+      owner_name: d.owner?.full_name ?? 'Unassigned',
+      status: d.status as CAPAStatus,
+      due_date: d.due_date ?? '',
+      severity: d.finding?.severity ?? 'medium',
+      standard: d.finding?.standard ?? '',
+      finding_title: d.finding?.title ?? '',
+      verified_by_name: d.verifier?.full_name,
+      verified_at: d.verified_at,
+      verification_notes: d.verification_notes,
+      org_id: d.org_id,
+      created_at: d.created_at,
+    };
+    setCapa(detail);
+    setEditTitle(detail.title);
+    setEditDesc(detail.description);
+    setEditRootCause(detail.root_cause);
+    setEditCorrective(detail.corrective_action);
+    setEditPreventive(detail.preventive_action);
+    setEditOwnerId(detail.owner_id ?? '');
+    setEditDue(detail.due_date ? detail.due_date.split('T')[0] : '');
+
+    const { data: members } = await supabase
+      .from('org_members')
+      .select('user_id, profile:profiles!user_id(full_name)')
+      .eq('org_id', memberData.org_id)
+      .eq('is_active', true);
+
+    if (members) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setOrgMembers(members.map((m: any) => ({
+        user_id: m.user_id,
+        full_name: m.profile?.full_name ?? 'Unknown',
+      })));
+    }
+
+    const { data: auditData } = await supabase
+      .from('audit_log')
+      .select('id, action, metadata, created_at, user:profiles!user_id(full_name)')
+      .eq('entity_type', 'capa')
+      .eq('entity_id', id)
+      .order('created_at', { ascending: true });
+
+    if (auditData) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const entries: TimelineEntry[] = auditData.map((entry: any) => {
+        let color = '#3BA7C9';
+        const meta = entry.metadata ?? {};
+        if (entry.action === 'capa.status_change') {
+          color = STATUS_STYLES[meta.new_status]?.color ?? '#3BA7C9';
+        }
+        if (entry.action === 'capa.verify') color = '#16A34A';
+        return {
+          id: String(entry.id),
+          action: meta.description ?? entry.action,
+          created_at: entry.created_at,
+          user_name: entry.user?.full_name ?? 'System',
+          color,
+        };
+      });
+      setTimeline(entries);
+    }
+
+    setIsLoading(false);
+  }, [id]);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  async function writeAuditLog(
+    supabase: ReturnType<typeof createClient>,
+    orgId: string,
+    userId: string,
+    action: string,
+    metadata: Record<string, unknown>
+  ) {
+    await supabase.from('audit_log').insert({
+      org_id: orgId,
+      user_id: userId,
+      action,
+      entity_type: 'capa',
+      entity_id: id,
+      metadata,
+    });
   }
 
   async function handleSave() {
+    if (!capa || !currentUserId) return;
     setIsSaving(true);
     try {
       const supabase = createClient();
-      await supabase.from('capas').update({
-        title: editTitle,
-        description: editDesc,
-        root_cause: editRootCause,
-        corrective_action: editCorrective,
-        preventive_action: editPreventive,
-        due_date: editDue,
-      }).eq('id', capa.id);
-    } catch { /* seed mode */ }
+      const { error } = await supabase
+        .from('capas')
+        .update({
+          title: editTitle,
+          description: editDesc,
+          root_cause: editRootCause,
+          corrective_action: editCorrective,
+          preventive_action: editPreventive,
+          owner_id: editOwnerId || null,
+          due_date: editDue || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .eq('org_id', capa.org_id);
 
-    setCapa((prev) => ({
-      ...prev,
-      title: editTitle,
-      description: editDesc,
-      rootCause: editRootCause,
-      correctiveAction: editCorrective,
-      preventiveAction: editPreventive,
-      owner: editOwner,
-      dueDate: editDue,
-    }));
-    setSaved(true);
-    setIsEditing(false);
-    setIsSaving(false);
-    setTimeout(() => setSaved(false), 3000);
+      if (error) throw error;
+
+      await writeAuditLog(supabase, capa.org_id, currentUserId, 'capa.update', {
+        description: `CAPA updated by ${currentUserName}`,
+      });
+
+      showToast('Changes saved');
+      setIsEditing(false);
+      await loadData();
+    } catch {
+      showToast('Save failed — please try again');
+    } finally {
+      setIsSaving(false);
+    }
   }
 
-  function advanceStatus() {
+  async function advanceStatus() {
+    if (!capa || !currentUserId) return;
     const current = STATUS_FLOW.indexOf(capa.status as typeof STATUS_FLOW[number]);
-    if (current === -1 || current === STATUS_FLOW.length - 1) return;
+    if (current === -1 || current >= STATUS_FLOW.length - 1) return;
     const next = STATUS_FLOW[current + 1];
-    setCapa((prev) => ({
-      ...prev,
-      status: next,
-      timeline: [...prev.timeline, {
-        date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        action: `Status advanced to ${STATUS_LABELS[next]}`,
-        by: editOwner,
-        color: STATUS_STYLES[next]?.color ?? '#3BA7C9',
-      }],
-    }));
-    showToast(`Status updated to ${STATUS_LABELS[next]}`);
+    setIsAdvancing(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('capas')
+        .update({ status: next, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('org_id', capa.org_id);
+
+      if (error) throw error;
+
+      await writeAuditLog(supabase, capa.org_id, currentUserId, 'capa.status_change', {
+        description: `Status changed to ${STATUS_LABELS[next]} by ${currentUserName}`,
+        old_status: capa.status,
+        new_status: next,
+      });
+
+      showToast(`Status updated to ${STATUS_LABELS[next]}`);
+      await loadData();
+    } catch {
+      showToast('Failed to update status');
+    } finally {
+      setIsAdvancing(false);
+    }
   }
 
-  function handleVerifyAndClose() {
+  async function handleVerifyAndClose() {
+    if (!capa || !currentUserId) return;
     if (!verifyNotes.trim()) { showToast('Please enter verification notes before closing.'); return; }
-    setCapa((prev) => ({
-      ...prev,
-      status: 'closed',
-      verifiedBy: 'Wayne Giles',
-      verifiedAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      verificationNotes: verifyNotes,
-      timeline: [...prev.timeline, {
-        date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-        action: `CAPA verified and closed. Notes: ${verifyNotes}`,
-        by: 'Wayne Giles',
-        color: '#16A34A',
-      }],
-    }));
-    showToast('CAPA verified and closed.');
-    setVerifyNotes('');
+    setIsVerifying(true);
+    try {
+      const supabase = createClient();
+      const now = new Date().toISOString();
+      const { error } = await supabase
+        .from('capas')
+        .update({
+          status: 'closed',
+          verified_by: currentUserId,
+          verified_at: now,
+          verification_notes: verifyNotes,
+          updated_at: now,
+        })
+        .eq('id', id)
+        .eq('org_id', capa.org_id);
+
+      if (error) throw error;
+
+      await writeAuditLog(supabase, capa.org_id, currentUserId, 'capa.verify', {
+        description: `CAPA verified and closed by ${currentUserName}`,
+        verification_notes: verifyNotes,
+      });
+
+      showToast('CAPA verified and closed.');
+      setVerifyNotes('');
+      await loadData();
+    } catch {
+      showToast('Failed to verify CAPA');
+    } finally {
+      setIsVerifying(false);
+    }
   }
 
-  const ss = STATUS_STYLES[capa.status];
+  if (isLoading) {
+    return <div style={{ padding: '32px', color: 'var(--g400, #A3A3A3)', fontSize: '14px' }}>Loading…</div>;
+  }
+
+  if (notFound || !capa) {
+    return (
+      <div style={{ padding: '32px' }}>
+        <Link href="/capa" style={{ color: 'var(--blue, #3BA7C9)', textDecoration: 'none', fontSize: '13px' }}>← Back to CAPAs</Link>
+        <p style={{ marginTop: '16px', color: 'var(--g500, #737373)', fontSize: '14px' }}>CAPA not found.</p>
+      </div>
+    );
+  }
+
+  const isOverdue = capa.status !== 'closed' && capa.due_date && new Date(capa.due_date) < new Date();
+  const ss = STATUS_STYLES[capa.status] ?? STATUS_STYLES.open;
   const sv = SEV_STYLES[capa.severity] ?? { bg: '#F5F5F5', color: '#525252' };
   const currentStatusIdx = STATUS_FLOW.indexOf(capa.status as typeof STATUS_FLOW[number]);
   const nextStatus = currentStatusIdx >= 0 && currentStatusIdx < STATUS_FLOW.length - 1 ? STATUS_FLOW[currentStatusIdx + 1] : null;
+  const dueDateDisplay = capa.due_date
+    ? new Date(capa.due_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : 'No due date';
+  const capaCode = `CAPA-${new Date(capa.created_at).getFullYear()}-${capa.id.slice(0, 6).toUpperCase()}`;
+
+  const canEdit = userRole === 'admin' || userRole === 'compliance';
+  const canVerify = userRole === 'admin' || userRole === 'compliance' || userRole === 'supervisor';
 
   return (
     <div style={{ padding: '32px', maxWidth: '900px' }}>
@@ -230,8 +365,15 @@ export default function CAPADetailPage({ params }: { params: Promise<{ id: strin
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--g500, #737373)', marginBottom: '20px' }}>
         <Link href="/capa" style={{ color: 'var(--blue, #3BA7C9)', textDecoration: 'none', fontWeight: 500 }}>CAPAs</Link>
         <span>/</span>
-        <span style={{ color: 'var(--g700, #404040)' }}>{capa.code}</span>
+        <span style={{ color: 'var(--g700, #404040)', fontFamily: 'monospace', fontSize: '12px' }}>{capaCode}</span>
       </div>
+
+      {/* Overdue warning */}
+      {isOverdue && (
+        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: '#DC2626', fontWeight: 500 }}>
+          ⚠ This CAPA is overdue. Due date was {dueDateDisplay}.
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
@@ -248,63 +390,66 @@ export default function CAPADetailPage({ params }: { params: Promise<{ id: strin
             </h1>
           )}
           <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
-            <span style={{ fontFamily: 'monospace', fontSize: '12px', color: 'var(--g400, #A3A3A3)' }}>{capa.code}</span>
+            <span style={{ fontFamily: 'monospace', fontSize: '12px', color: 'var(--g400, #A3A3A3)' }}>{capaCode}</span>
             <span style={{ padding: '2px 10px', borderRadius: '10px', fontSize: '12px', fontWeight: 600, background: ss.bg, color: ss.color }}>{STATUS_LABELS[capa.status]}</span>
             <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 600, background: sv.bg, color: sv.color, textTransform: 'capitalize' }}>{capa.severity}</span>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-          {isEditing ? (
-            <>
-              <button onClick={() => setIsEditing(false)} style={{ padding: '7px 14px', background: '#fff', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', color: 'var(--g600, #525252)' }}>
-                Cancel
+        {canEdit && (
+          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+            {isEditing ? (
+              <>
+                <button onClick={() => setIsEditing(false)} style={{ padding: '7px 14px', background: '#fff', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '6px', fontSize: '13px', cursor: 'pointer', color: 'var(--g600, #525252)' }}>
+                  Cancel
+                </button>
+                <button onClick={handleSave} disabled={isSaving} style={{ padding: '7px 16px', background: 'var(--blue, #3BA7C9)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: isSaving ? 'wait' : 'pointer', opacity: isSaving ? 0.7 : 1 }}>
+                  {isSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setIsEditing(true)} style={{ padding: '7px 16px', background: '#fff', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '6px', fontSize: '13px', fontWeight: 500, cursor: 'pointer', color: 'var(--g700, #404040)' }}>
+                Edit
               </button>
-              <button onClick={handleSave} disabled={isSaving} style={{ padding: '7px 16px', background: 'var(--blue, #3BA7C9)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: isSaving ? 'wait' : 'pointer' }}>
-                {isSaving ? 'Saving…' : 'Save Changes'}
-              </button>
-            </>
-          ) : (
-            <button onClick={() => setIsEditing(true)} style={{ padding: '7px 16px', background: '#fff', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '6px', fontSize: '13px', fontWeight: 500, cursor: 'pointer', color: 'var(--g700, #404040)' }}>
-              Edit
-            </button>
-          )}
-          {saved && <span style={{ padding: '7px 14px', color: 'var(--green, #16A34A)', fontSize: '13px', fontWeight: 600 }}>✓ Saved</span>}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Status workflow */}
-      {nextStatus && (
+      {/* Status advancement */}
+      {nextStatus && canEdit && (
         <div style={{ background: 'var(--blue-bg, #F0F9FC)', border: '1px solid var(--blue-light, #E8F6FA)', borderRadius: '8px', padding: '12px 16px', marginBottom: '24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
           <p style={{ fontSize: '13px', color: 'var(--blue-dark, #2A8BA8)', margin: 0 }}>
-            Ready to advance status from <strong>{STATUS_LABELS[capa.status]}</strong> to <strong>{STATUS_LABELS[nextStatus]}</strong>?
+            Ready to advance from <strong>{STATUS_LABELS[capa.status]}</strong> to <strong>{STATUS_LABELS[nextStatus]}</strong>?
           </p>
           <button
             onClick={advanceStatus}
-            style={{ padding: '7px 16px', background: 'var(--blue, #3BA7C9)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+            disabled={isAdvancing}
+            style={{ padding: '7px 16px', background: 'var(--blue, #3BA7C9)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: isAdvancing ? 'wait' : 'pointer', opacity: isAdvancing ? 0.7 : 1 }}
           >
-            Advance to {STATUS_LABELS[nextStatus]}
+            {isAdvancing ? 'Updating…' : `Advance to ${STATUS_LABELS[nextStatus]}`}
           </button>
         </div>
       )}
 
-      {/* Main content grid */}
+      {/* Main grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '20px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
-          {/* Detail card */}
+          {/* Description */}
           <div style={{ background: '#fff', border: '1px solid var(--g200, #E8E8E8)', borderRadius: '10px', padding: '20px 24px' }}>
             <h2 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--g700, #404040)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 16px' }}>Description</h2>
             {isEditing ? (
               <textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)} rows={3}
                 style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '6px', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box' }} />
             ) : (
-              <p style={{ fontSize: '14px', color: 'var(--g700, #404040)', lineHeight: '1.65', margin: 0 }}>{capa.description}</p>
+              <p style={{ fontSize: '14px', color: 'var(--g700, #404040)', lineHeight: '1.65', margin: 0 }}>{capa.description || <em style={{ color: 'var(--g400)' }}>No description</em>}</p>
             )}
-
-            <div style={{ borderTop: '1px solid var(--g100, #F5F5F5)', paddingTop: '16px', marginTop: '16px' }}>
-              <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--g400, #A3A3A3)', margin: '0 0 4px' }}>Linked Finding</p>
-              <p style={{ fontSize: '13px', color: 'var(--g700, #404040)', margin: 0 }}>{capa.finding}</p>
-            </div>
+            {capa.finding_title && (
+              <div style={{ borderTop: '1px solid var(--g100, #F5F5F5)', paddingTop: '16px', marginTop: '16px' }}>
+                <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--g400, #A3A3A3)', margin: '0 0 4px' }}>Linked Finding</p>
+                <p style={{ fontSize: '13px', color: 'var(--g700, #404040)', margin: 0 }}>{capa.finding_title}</p>
+              </div>
+            )}
           </div>
 
           {/* Root cause */}
@@ -314,7 +459,7 @@ export default function CAPADetailPage({ params }: { params: Promise<{ id: strin
               <textarea value={editRootCause} onChange={(e) => setEditRootCause(e.target.value)} rows={3}
                 style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '6px', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box' }} />
             ) : (
-              <p style={{ fontSize: '14px', color: 'var(--g700, #404040)', lineHeight: '1.65', margin: 0 }}>{capa.rootCause}</p>
+              <p style={{ fontSize: '14px', color: 'var(--g700, #404040)', lineHeight: '1.65', margin: 0 }}>{capa.root_cause || <em style={{ color: 'var(--g400)' }}>Not yet documented</em>}</p>
             )}
           </div>
 
@@ -325,7 +470,7 @@ export default function CAPADetailPage({ params }: { params: Promise<{ id: strin
               <textarea value={editCorrective} onChange={(e) => setEditCorrective(e.target.value)} rows={3}
                 style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '6px', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box' }} />
             ) : (
-              <p style={{ fontSize: '14px', color: 'var(--g700, #404040)', lineHeight: '1.65', margin: 0 }}>{capa.correctiveAction}</p>
+              <p style={{ fontSize: '14px', color: 'var(--g700, #404040)', lineHeight: '1.65', margin: 0 }}>{capa.corrective_action || <em style={{ color: 'var(--g400)' }}>Not yet documented</em>}</p>
             )}
           </div>
 
@@ -336,16 +481,14 @@ export default function CAPADetailPage({ params }: { params: Promise<{ id: strin
               <textarea value={editPreventive} onChange={(e) => setEditPreventive(e.target.value)} rows={3}
                 style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '6px', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box' }} />
             ) : (
-              <p style={{ fontSize: '14px', color: 'var(--g700, #404040)', lineHeight: '1.65', margin: 0 }}>{capa.preventiveAction}</p>
+              <p style={{ fontSize: '14px', color: 'var(--g700, #404040)', lineHeight: '1.65', margin: 0 }}>{capa.preventive_action || <em style={{ color: 'var(--g400)' }}>Not yet documented</em>}</p>
             )}
           </div>
 
           {/* Verification section */}
-          {capa.status === 'pending_verification' && (
+          {capa.status === 'pending_verification' && canVerify && (
             <div style={{ background: '#fff', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '10px', padding: '20px 24px' }}>
-              <h2 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--g700, #404040)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 12px' }}>
-                Verification
-              </h2>
+              <h2 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--g700, #404040)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 12px' }}>Verification</h2>
               <div style={{ marginBottom: '12px' }}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, color: 'var(--g600, #525252)', marginBottom: '6px' }}>Verification Notes</label>
                 <textarea
@@ -358,37 +501,43 @@ export default function CAPADetailPage({ params }: { params: Promise<{ id: strin
               </div>
               <button
                 onClick={handleVerifyAndClose}
-                style={{ padding: '8px 20px', background: 'var(--green, #16A34A)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
+                disabled={isVerifying}
+                style={{ padding: '8px 20px', background: 'var(--green, #16A34A)', color: '#fff', border: 'none', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: isVerifying ? 'wait' : 'pointer', opacity: isVerifying ? 0.7 : 1 }}
               >
-                Verify &amp; Close CAPA
+                {isVerifying ? 'Verifying…' : 'Verify & Close CAPA'}
               </button>
             </div>
           )}
 
-          {capa.status === 'closed' && capa.verificationNotes && (
+          {capa.status === 'closed' && capa.verification_notes && (
             <div style={{ background: 'var(--green-light, #F0FDF4)', border: '1px solid #BBF7D0', borderRadius: '10px', padding: '20px 24px' }}>
               <h2 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--green, #16A34A)', margin: '0 0 10px' }}>✓ CAPA Closed &amp; Verified</h2>
-              <p style={{ fontSize: '13px', color: 'var(--g700, #404040)', margin: '0 0 6px' }}><strong>Verified by:</strong> {capa.verifiedBy} on {capa.verifiedAt}</p>
-              <p style={{ fontSize: '13px', color: 'var(--g700, #404040)', margin: 0 }}><strong>Notes:</strong> {capa.verificationNotes}</p>
+              {capa.verified_by_name && (
+                <p style={{ fontSize: '13px', color: 'var(--g700, #404040)', margin: '0 0 6px' }}>
+                  <strong>Verified by:</strong> {capa.verified_by_name}{capa.verified_at && ` on ${new Date(capa.verified_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                </p>
+              )}
+              <p style={{ fontSize: '13px', color: 'var(--g700, #404040)', margin: 0 }}><strong>Notes:</strong> {capa.verification_notes}</p>
             </div>
           )}
         </div>
 
         {/* Right sidebar */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          {/* Details panel */}
+          {/* Details */}
           <div style={{ background: '#fff', border: '1px solid var(--g200, #E8E8E8)', borderRadius: '10px', padding: '18px' }}>
             <h3 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--g500, #737373)', margin: '0 0 14px' }}>Details</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <div>
                 <p style={{ fontSize: '11px', fontWeight: 600, color: 'var(--g400, #A3A3A3)', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0 0 3px' }}>Owner</p>
                 {isEditing ? (
-                  <select value={editOwner} onChange={(e) => setEditOwner(e.target.value)}
+                  <select value={editOwnerId} onChange={(e) => setEditOwnerId(e.target.value)}
                     style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '5px', fontSize: '13px', background: '#fff' }}>
-                    {ORG_MEMBERS.map((m) => <option key={m} value={m}>{m}</option>)}
+                    <option value="">Unassigned</option>
+                    {orgMembers.map((m) => <option key={m.user_id} value={m.user_id}>{m.full_name}</option>)}
                   </select>
                 ) : (
-                  <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--g800, #262626)', margin: 0 }}>{capa.owner}</p>
+                  <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--g800, #262626)', margin: 0 }}>{capa.owner_name}</p>
                 )}
               </div>
               <div>
@@ -397,13 +546,17 @@ export default function CAPADetailPage({ params }: { params: Promise<{ id: strin
                   <input type="date" value={editDue} onChange={(e) => setEditDue(e.target.value)}
                     style={{ width: '100%', padding: '6px 8px', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '5px', fontSize: '13px', boxSizing: 'border-box' }} />
                 ) : (
-                  <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--g800, #262626)', margin: 0 }}>{capa.dueDate}</p>
+                  <p style={{ fontSize: '13px', fontWeight: 500, color: isOverdue ? '#DC2626' : 'var(--g800, #262626)', margin: 0 }}>
+                    {isOverdue && '⚠ '}{dueDateDisplay}
+                  </p>
                 )}
               </div>
-              <div>
-                <p style={{ fontSize: '11px', fontWeight: 600, color: 'var(--g400, #A3A3A3)', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0 0 3px' }}>Standard</p>
-                <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--g800, #262626)', margin: 0 }}>{capa.standard}</p>
-              </div>
+              {capa.standard && (
+                <div>
+                  <p style={{ fontSize: '11px', fontWeight: 600, color: 'var(--g400, #A3A3A3)', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0 0 3px' }}>Standard</p>
+                  <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--g800, #262626)', margin: 0 }}>{capa.standard}</p>
+                </div>
+              )}
               <div>
                 <p style={{ fontSize: '11px', fontWeight: 600, color: 'var(--g400, #A3A3A3)', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0 0 4px' }}>Status</p>
                 <span style={{ padding: '3px 10px', borderRadius: '10px', fontSize: '12px', fontWeight: 600, background: ss.bg, color: ss.color }}>
@@ -413,25 +566,31 @@ export default function CAPADetailPage({ params }: { params: Promise<{ id: strin
             </div>
           </div>
 
-          {/* Activity timeline */}
+          {/* Timeline */}
           <div style={{ background: '#fff', border: '1px solid var(--g200, #E8E8E8)', borderRadius: '10px', padding: '18px' }}>
             <h3 style={{ fontSize: '12px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--g500, #737373)', margin: '0 0 14px' }}>Activity Timeline</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
-              {capa.timeline.map((entry, i) => (
-                <div key={i} style={{ display: 'flex', gap: '10px', paddingBottom: i < capa.timeline.length - 1 ? '12px' : '0' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: entry.color, marginTop: '4px', flexShrink: 0 }} />
-                    {i < capa.timeline.length - 1 && (
-                      <div style={{ width: '1px', flex: 1, background: 'var(--g200, #E8E8E8)', marginTop: '4px' }} />
-                    )}
+            {timeline.length === 0 ? (
+              <p style={{ fontSize: '13px', color: 'var(--g400, #A3A3A3)', margin: 0 }}>No activity recorded yet.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {timeline.map((entry, i) => (
+                  <div key={entry.id} style={{ display: 'flex', gap: '10px', paddingBottom: i < timeline.length - 1 ? '12px' : '0' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: entry.color, marginTop: '4px', flexShrink: 0 }} />
+                      {i < timeline.length - 1 && (
+                        <div style={{ width: '1px', flex: 1, background: 'var(--g200, #E8E8E8)', marginTop: '4px' }} />
+                      )}
+                    </div>
+                    <div style={{ paddingBottom: '4px' }}>
+                      <p style={{ fontSize: '12px', color: 'var(--g700, #404040)', margin: '0 0 2px', lineHeight: '1.4' }}>{entry.action}</p>
+                      <p style={{ fontSize: '11px', color: 'var(--g400, #A3A3A3)', margin: 0 }}>
+                        {new Date(entry.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {entry.user_name}
+                      </p>
+                    </div>
                   </div>
-                  <div style={{ paddingBottom: '4px' }}>
-                    <p style={{ fontSize: '12px', color: 'var(--g700, #404040)', margin: '0 0 2px', lineHeight: '1.4' }}>{entry.action}</p>
-                    <p style={{ fontSize: '11px', color: 'var(--g400, #A3A3A3)', margin: 0 }}>{entry.date} · {entry.by}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

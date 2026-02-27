@@ -6,6 +6,8 @@ interface ApprovalWorkflowProps {
   currentStatus: PolicyStatus;
   onStatusChange?: (newStatus: PolicyStatus) => Promise<void> | void;
   disabled?: boolean;
+  isAiGenerated?: boolean;
+  aiSuggestionTitle?: string;
 }
 
 const WORKFLOW_STEPS: { status: PolicyStatus; label: string }[] = [
@@ -27,12 +29,53 @@ export default function ApprovalWorkflow({
   currentStatus,
   onStatusChange,
   disabled = false,
+  isAiGenerated = false,
+  aiSuggestionTitle,
 }: ApprovalWorkflowProps) {
   const currentIdx = STATUS_INDEX[currentStatus] ?? 0;
   const isRetired = currentStatus === 'retired';
 
   return (
     <div>
+      {/* AI Generated banner */}
+      {isAiGenerated && (
+        <div
+          style={{
+            padding: '10px 14px',
+            background: '#F0F9FC',
+            border: '1px solid #B2E0ED',
+            borderRadius: '6px',
+            fontSize: '13px',
+            color: '#0E7490',
+            fontWeight: 500,
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span style={{
+            padding: '2px 8px',
+            borderRadius: '10px',
+            fontSize: '11px',
+            fontWeight: 700,
+            background: '#E8F6FA',
+            color: '#2A8BA8',
+            border: '1px solid #B2E0ED',
+            flexShrink: 0,
+          }}>
+            AI
+          </span>
+          <span>
+            This policy was created by the AI Policy Guardian.
+            {aiSuggestionTitle && (
+              <span style={{ color: '#737373' }}> — {aiSuggestionTitle}</span>
+            )}
+            {' '}Please review carefully before approving.
+          </span>
+        </div>
+      )}
+
       {/* Step track */}
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: '20px' }}>
         {WORKFLOW_STEPS.map((step, i) => {
@@ -152,7 +195,7 @@ export default function ApprovalWorkflow({
                   fontFamily: 'inherit',
                 }}
               >
-                Approve →
+                {isAiGenerated ? '✓ Approve AI Policy →' : 'Approve →'}
               </button>
               <button
                 type="button"
@@ -169,7 +212,7 @@ export default function ApprovalWorkflow({
                   fontFamily: 'inherit',
                 }}
               >
-                ← Return to Draft
+                {isAiGenerated ? '✕ Reject → Draft' : '← Return to Draft'}
               </button>
             </>
           )}

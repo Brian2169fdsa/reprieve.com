@@ -51,6 +51,7 @@ export default function Header() {
     orgName: string | null
   } | null>(null)
   const [signingOut, setSigningOut] = useState(false)
+  const [notifCount, setNotifCount] = useState(0)
 
   useEffect(() => {
     const supabase = createClient()
@@ -79,6 +80,15 @@ export default function Header() {
           (membership?.organizations as unknown as { name: string })?.name ||
           null,
       })
+
+      // Fetch unread notification count
+      const { count } = await supabase
+        .from("notifications")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("is_read", false)
+
+      setNotifCount(count ?? 0)
     }
 
     fetchUser()
@@ -154,17 +164,19 @@ export default function Header() {
         {/* Notification bell */}
         <button className="relative text-white/80 hover:text-white transition-colors cursor-pointer p-1">
           <Bell size={18} />
-          <span
-            className="absolute -top-0.5 -right-0.5 flex items-center justify-center text-white font-bold text-[10px] rounded-full"
-            style={{
-              width: 16,
-              height: 16,
-              backgroundColor: "#DC2626",
-              lineHeight: 1,
-            }}
-          >
-            3
-          </span>
+          {notifCount > 0 && (
+            <span
+              className="absolute -top-0.5 -right-0.5 flex items-center justify-center text-white font-bold text-[10px] rounded-full"
+              style={{
+                width: 16,
+                height: 16,
+                backgroundColor: "#DC2626",
+                lineHeight: 1,
+              }}
+            >
+              {notifCount > 99 ? "99+" : notifCount}
+            </span>
+          )}
         </button>
 
         {/* User dropdown */}

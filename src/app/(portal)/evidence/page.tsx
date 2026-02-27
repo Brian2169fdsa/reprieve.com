@@ -1,744 +1,612 @@
 "use client"
 
-import { useState, useMemo, useEffect, useCallback, useRef } from "react"
-import { LayoutGrid, List, Layers, Calendar, Upload, Loader2, Trash2, Download, Eye, X } from "lucide-react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { createClient } from "@/lib/supabase/client"
-import { useOrg } from "@/hooks/use-org"
-import { uploadEvidence, getEvidenceUrl, deleteEvidence } from "@/lib/supabase/storage"
+import { getEvidenceUrl } from "@/lib/supabase/storage"
 
 // ── Types ────────────────────────────────────────────────
-interface EvidenceItem {
+interface EvidenceRow {
   id: string
-  fileName: string
-  fileType: "pdf" | "image" | "video" | "document"
-  filePath: string
-  fileSizeBytes: number
-  checkpointId: string | null
-  checkpointTitle: string
-  checkpointCode: string
+  file_name: string
+  file_path: string
+  file_type: string | null
+  file_size_bytes: number | null
+  created_at: string
+  uploaded_by: string | null
+  checkpoint_id: string | null
+  tags: Record<string, unknown>
+  checkpoint?: {
+    id: string
+    period: string
+    status: string
+    control?: {
+      id: string
+      code: string
+      title: string
+      standard: string
+    }
+  }
+  uploader?: { full_name: string } | null
+}
+
+interface MissingEvidence {
+  checkpointId: string
+  controlCode: string
+  controlTitle: string
   standard: string
-  program: string
   period: string
-  uploadedBy: string
-  uploadedAt: string
-  fileSize: string
 }
 
-// ── Config maps ──────────────────────────────────────────
-const STANDARD_STYLE: Record<string, { bg: string; color: string }> = {
-  OIG:        { bg: "#EFF6FF", color: "#1D4ED8" },
-  HIPAA:      { bg: "#F5F3FF", color: "#6D28D9" },
-  AHCCCS:     { bg: "#F0FDF4", color: "#15803D" },
-  Safety:     { bg: "#FFFBEB", color: "#B45309" },
-  Operations: { bg: "#F5F5F5", color: "#525252" },
-  Internal:   { bg: "#F5F5F5", color: "#525252" },
-  TJC:        { bg: "#FEF3C7", color: "#92400E" },
-  CARF:       { bg: "#E0E7FF", color: "#3730A3" },
-  HR:         { bg: "#FDF2F8", color: "#9D174D" },
-  Quality:    { bg: "#ECFDF5", color: "#065F46" },
+interface StandardGroup {
+  standard: string
+  items: EvidenceRow[]
+  missing: MissingEvidence[]
 }
 
-const FILE_TYPE_STYLE: Record<string, { bg: string; color: string; label: string }> = {
-  pdf:      { bg: "#FEF2F2", color: "#DC2626", label: "PDF" },
-  image:    { bg: "#F0FDF4", color: "#16A34A", label: "IMG" },
-  video:    { bg: "#EFF6FF", color: "#1D4ED8", label: "VID" },
-  document: { bg: "#F5F3FF", color: "#6D28D9", label: "DOC" },
+// ── Constants ────────────────────────────────────────────
+
+const STANDARD_COLORS: Record<string, { accent: string; bg: string; text: string }> = {
+  OIG:        { accent: '#3BA7C9', bg: '#E8F6FA', text: '#0E7490' },
+  HIPAA:      { accent: '#7C3AED', bg: '#F5F3FF', text: '#6D28D9' },
+  AHCCCS:     { accent: '#16A34A', bg: '#F0FDF4', text: '#15803D' },
+  Safety:     { accent: '#D97706', bg: '#FFFBEB', text: '#B45309' },
+  Operations: { accent: '#737373', bg: '#F5F5F5', text: '#525252' },
+  HR:         { accent: '#DB2777', bg: '#FDF4FF', text: '#9333EA' },
+  TJC:        { accent: '#92400E', bg: '#FFF7ED', text: '#92400E' },
+  CARF:       { accent: '#4338CA', bg: '#EEF2FF', text: '#4338CA' },
+  Internal:   { accent: '#525252', bg: '#F5F5F5', text: '#525252' },
 }
 
-/** Format bytes to human readable */
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B"
-  const k = 1024
-  const sizes = ["B", "KB", "MB", "GB"]
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
+const FILE_ICONS: Record<string, { label: string; bg: string; color: string }> = {
+  pdf:      { label: 'PDF', bg: '#FEF2F2', color: '#DC2626' },
+  image:    { label: 'IMG', bg: '#EFF6FF', color: '#2563EB' },
+  video:    { label: 'VID', bg: '#F5F3FF', color: '#7C3AED' },
+  document: { label: 'DOC', bg: '#F0FDF4', color: '#16A34A' },
 }
 
-/** Map file extension to our file_type categories */
-function inferFileType(fileName: string): "pdf" | "image" | "video" | "document" {
-  const ext = fileName.split(".").pop()?.toLowerCase() ?? ""
-  if (ext === "pdf") return "pdf"
-  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext)) return "image"
-  if (["mp4", "mov", "avi", "webm", "mkv"].includes(ext)) return "video"
-  return "document"
+// ── Mock seed data ───────────────────────────────────────
+
+const MOCK_EVIDENCE: Array<{
+  file_name: string
+  file_type: string
+  file_size_bytes: number
+  standard: string
+  controlCode: string
+  controlTitle: string
+  period: string
+  present: boolean
+}> = [
+  { file_name: 'OIG-SCR-001_Feb2026_Results.pdf', file_type: 'pdf', file_size_bytes: 245000, standard: 'OIG', controlCode: 'OIG-SCR-001', controlTitle: 'Monthly Exclusion Screening', period: '2026-02', present: true },
+  { file_name: 'HIPAA-ACCESS-001_Feb2026_Log.pdf', file_type: 'pdf', file_size_bytes: 189000, standard: 'HIPAA', controlCode: 'HIPAA-ACCESS-001', controlTitle: 'Access Log Review', period: '2026-02', present: true },
+  { file_name: 'AHCCCS-CA-001_ChartAudit_Feb2026.pdf', file_type: 'pdf', file_size_bytes: 412000, standard: 'AHCCCS', controlCode: 'AHCCCS-CA-001', controlTitle: 'Clinical Chart Audit', period: '2026-02', present: true },
+  { file_name: 'SAFE-FD-001_FireDrill_Feb2026.pdf', file_type: 'pdf', file_size_bytes: 0, standard: 'Safety', controlCode: 'SAFE-FD-001', controlTitle: 'Fire Drill Documentation', period: '2026-02', present: false },
+  { file_name: 'SAFE-MED-001_TempLog_Feb2026.jpg', file_type: 'image', file_size_bytes: 87000, standard: 'Safety', controlCode: 'SAFE-MED-001', controlTitle: 'Medication Temperature Log', period: '2026-02', present: true },
+  { file_name: 'HR-CRED-001_CredVerification_Feb2026.pdf', file_type: 'pdf', file_size_bytes: 156000, standard: 'HR', controlCode: 'HR-CRED-001', controlTitle: 'Staff Credential Verification', period: '2026-02', present: true },
+  { file_name: 'OPS-GRV-001_GrievanceLog_Feb2026.pdf', file_type: 'pdf', file_size_bytes: 98000, standard: 'Operations', controlCode: 'OPS-GRV-001', controlTitle: 'Client Grievance Log', period: '2026-02', present: true },
+  { file_name: 'SAFE-INC-001_IncidentReport_Feb2026.pdf', file_type: 'pdf', file_size_bytes: 0, standard: 'Safety', controlCode: 'SAFE-INC-001', controlTitle: 'Incident Report Review', period: '2026-02', present: false },
+]
+
+// ── Helpers ──────────────────────────────────────────────
+
+function formatFileSize(bytes: number | null): string {
+  if (!bytes) return "—"
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/** Format ISO date to readable string */
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr)
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+function formatPeriod(period: string): string {
+  // "2026-02" → "Feb 2026", "2026-Q1" → "Q1 2026"
+  if (period.includes('Q')) {
+    const [year, q] = period.split('-')
+    return `${q} ${year}`
+  }
+  const [year, month] = period.split('-')
+  const date = new Date(Number(year), Number(month) - 1, 1)
+  return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
 }
 
-// ── Sub-components ───────────────────────────────────────
-function FileTypeBadge({ fileType }: { fileType: string }) {
-  const s = FILE_TYPE_STYLE[fileType] ?? { bg: "#F5F5F5", color: "#525252", label: fileType.toUpperCase().slice(0, 3) }
-  return (
-    <div style={{ width: 44, height: 44, borderRadius: 8, background: s.bg, color: s.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "10px", fontWeight: 800, letterSpacing: "0.05em", flexShrink: 0 }}>
-      {s.label}
-    </div>
-  )
+function getFileTypeFromName(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  if (ext === 'pdf') return 'pdf'
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) return 'image'
+  if (['mp4', 'mov', 'avi', 'webm'].includes(ext)) return 'video'
+  return 'document'
 }
 
-function StandardBadge({ standard }: { standard: string }) {
-  const s = STANDARD_STYLE[standard] ?? { bg: "#F5F5F5", color: "#525252" }
-  return (
-    <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: "11px", fontWeight: 600, background: s.bg, color: s.color }}>
-      {standard}
-    </span>
-  )
-}
+// ── Component ────────────────────────────────────────────
 
-// ── Main component ───────────────────────────────────────
-export default function EvidencePage() {
-  const [periodFilter,   setPeriodFilter]   = useState("all")
-  const [standardFilter, setStandardFilter] = useState("all")
-  const [programFilter,  setProgramFilter]  = useState("all")
-  const [typeFilter,     setTypeFilter]     = useState("all")
-  const [view,           setView]           = useState<"grid" | "list">("grid")
-  const [groupBy,        setGroupBy]        = useState<null | "standard" | "month">(null)
+export default function EvidenceBinderPage() {
+  const [orgId, setOrgId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [evidenceRows, setEvidenceRows] = useState<EvidenceRow[]>([])
+  const [missingEvidence, setMissingEvidence] = useState<MissingEvidence[]>([])
+  const [activePeriod, setActivePeriod] = useState<string>('')
+  const [exporting, setExporting] = useState(false)
 
-  const [evidence, setEvidence]     = useState<EvidenceItem[]>([])
-  const [loading, setLoading]       = useState(true)
-  const [uploading, setUploading]   = useState(false)
-  const [deleting, setDeleting]     = useState<string | null>(null)
-  const [actionMsg, setActionMsg]   = useState<{ type: "success" | "error"; text: string } | null>(null)
-
-  // Available filter values derived from data
-  const [availablePeriods, setAvailablePeriods]     = useState<string[]>([])
-  const [availableStandards, setAvailableStandards] = useState<string[]>([])
-
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const { org } = useOrg()
-
-  // ── Fetch evidence ──────────────────────────────────────
-  const fetchEvidence = useCallback(async () => {
-    if (!org?.id) return
+  const loadData = useCallback(async () => {
     setLoading(true)
-
+    setError(null)
     const supabase = createClient()
 
-    const { data, error } = await supabase
-      .from("evidence")
-      .select(`
-        id,
-        file_path,
-        file_name,
-        file_type,
-        file_size_bytes,
-        tags,
-        created_at,
-        checkpoint_id,
-        checkpoints (
-          id,
-          period,
-          controls ( code, title, standard )
-        ),
-        profiles:uploaded_by ( full_name )
-      `)
-      .eq("org_id", org.id)
-      .order("created_at", { ascending: false })
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
 
-    if (error) {
-      console.error("Failed to fetch evidence:", error.message)
-      setEvidence([])
+    const { data: membership } = await supabase
+      .from('org_members')
+      .select('org_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (!membership) {
+      setError('No organization found.')
       setLoading(false)
       return
     }
 
-    // Build filter option sets
-    const periodSet = new Set<string>()
-    const standardSet = new Set<string>()
+    setOrgId(membership.org_id)
 
-    const mapped: EvidenceItem[] = (data ?? []).map((row) => {
-      const checkpoint = row.checkpoints as unknown as {
-        id: string
-        period: string
-        controls: { code: string; title: string; standard: string } | null
-      } | null
-      const uploader = row.profiles as unknown as { full_name: string } | null
-      const tags = (row.tags ?? {}) as Record<string, string>
+    // Fetch evidence with checkpoint + control joins
+    const { data: evidence, error: evErr } = await supabase
+      .from('evidence')
+      .select(`
+        *,
+        checkpoint:checkpoints!checkpoint_id(
+          id, period, status,
+          control:controls!control_id(id, code, title, standard)
+        ),
+        uploader:profiles!uploaded_by(full_name)
+      `)
+      .eq('org_id', membership.org_id)
+      .order('created_at', { ascending: false })
 
-      const period = checkpoint?.period ?? tags.period ?? "—"
-      const standard = checkpoint?.controls?.standard ?? tags.standard ?? "—"
-      const program = tags.program ?? "All"
+    if (evErr) {
+      setError(evErr.message)
+      setLoading(false)
+      return
+    }
 
-      if (period !== "—") periodSet.add(period)
-      if (standard !== "—") standardSet.add(standard)
+    // Fetch checkpoints that are completed/passed but have no evidence
+    const { data: checkpoints } = await supabase
+      .from('checkpoints')
+      .select(`
+        id, period, status,
+        control:controls!control_id(id, code, title, standard)
+      `)
+      .eq('org_id', membership.org_id)
+      .in('status', ['passed', 'failed', 'in_progress', 'pending'])
 
-      return {
-        id: row.id as string,
-        fileName: row.file_name as string,
-        fileType: (row.file_type as EvidenceItem["fileType"]) ?? inferFileType(row.file_name as string),
-        filePath: row.file_path as string,
-        fileSizeBytes: (row.file_size_bytes as number) ?? 0,
-        checkpointId: row.checkpoint_id as string | null,
-        checkpointTitle: checkpoint?.controls?.title ?? "—",
-        checkpointCode: checkpoint?.controls?.code ?? "—",
-        standard,
-        program,
-        period,
-        uploadedBy: uploader?.full_name ?? "Unknown",
-        uploadedAt: formatDate(row.created_at as string),
-        fileSize: formatBytes((row.file_size_bytes as number) ?? 0),
+    const evidenceCheckpointIds = new Set((evidence ?? []).map(e => e.checkpoint_id).filter(Boolean))
+    const missing: MissingEvidence[] = []
+    for (const cp of (checkpoints ?? [])) {
+      if (!evidenceCheckpointIds.has(cp.id) && cp.control) {
+        const ctrl = cp.control as unknown as { id: string; code: string; title: string; standard: string }
+        missing.push({
+          checkpointId: cp.id,
+          controlCode: ctrl.code,
+          controlTitle: ctrl.title,
+          standard: ctrl.standard,
+          period: cp.period,
+        })
       }
-    })
+    }
 
-    setAvailablePeriods(Array.from(periodSet).sort().reverse())
-    setAvailableStandards(Array.from(standardSet).sort())
-    setEvidence(mapped)
+    const rows = (evidence ?? []) as unknown as EvidenceRow[]
+
+    // If no real data, use mock
+    if (rows.length === 0 && missing.length === 0) {
+      setEvidenceRows([])
+      setMissingEvidence([])
+      setActivePeriod('2026-02')
+      setLoading(false)
+      return
+    }
+
+    setEvidenceRows(rows)
+    setMissingEvidence(missing)
+
+    // Pick the most recent period as default
+    const allPeriods = new Set<string>()
+    rows.forEach(r => {
+      if (r.checkpoint?.period) allPeriods.add(r.checkpoint.period)
+    })
+    missing.forEach(m => allPeriods.add(m.period))
+    const sorted = Array.from(allPeriods).sort().reverse()
+    setActivePeriod(sorted[0] ?? '2026-02')
     setLoading(false)
-  }, [org?.id])
+  }, [])
 
-  useEffect(() => {
-    fetchEvidence()
-  }, [fetchEvidence])
+  useEffect(() => { loadData() }, [loadData])
 
-  // Filtered evidence
-  const filtered = useMemo(() =>
-    evidence.filter(item => {
-      if (periodFilter   !== "all" && item.period   !== periodFilter)   return false
-      if (standardFilter !== "all" && item.standard !== standardFilter) return false
-      if (programFilter  !== "all" && item.program  !== programFilter && item.program !== "All") return false
-      if (typeFilter     !== "all" && item.fileType !== typeFilter)     return false
-      return true
-    }),
-    [evidence, periodFilter, standardFilter, programFilter, typeFilter]
-  )
-
-  // Grouped data
-  type Group = { key: string; label: string; items: EvidenceItem[] }
-  const groups: Group[] = useMemo(() => {
-    if (!groupBy) return [{ key: "all", label: "", items: filtered }]
-    const map = new Map<string, EvidenceItem[]>()
-    filtered.forEach(item => {
-      const key = groupBy === "standard" ? item.standard : item.period
-      map.set(key, [...(map.get(key) ?? []), item])
+  // Compute available periods
+  const periods = useMemo(() => {
+    const set = new Set<string>()
+    evidenceRows.forEach(r => {
+      if (r.checkpoint?.period) set.add(r.checkpoint.period)
     })
-    return Array.from(map.entries()).map(([key, items]) => ({ key, label: key, items }))
-  }, [filtered, groupBy])
+    missingEvidence.forEach(m => set.add(m.period))
+    // If no data, show mock periods
+    if (set.size === 0) {
+      return ['2026-02', '2026-01', '2025-Q4', '2025-Q3']
+    }
+    return Array.from(set).sort().reverse()
+  }, [evidenceRows, missingEvidence])
 
-  const selectStyle: React.CSSProperties = {
-    padding: "6px 10px", borderRadius: "6px", border: "1px solid #E8E8E8",
-    fontSize: "13px", color: "#404040", background: "#fff", cursor: "pointer",
-    outline: "none", minWidth: 120,
-  }
+  // Filter by active period and group by standard
+  const standardGroups: StandardGroup[] = useMemo(() => {
+    const useReal = evidenceRows.length > 0 || missingEvidence.length > 0
 
-  // ── Upload handler ──────────────────────────────────────
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!org?.id || !e.target.files?.length) return
-    const file = e.target.files[0]
-    setUploading(true)
-    setActionMsg(null)
-
-    // Upload to storage (uses "unattached" as checkpoint ID for standalone uploads)
-    const { path, error } = await uploadEvidence(org.id, "unattached", file)
-
-    if (error) {
-      setActionMsg({ type: "error", text: `Upload failed: ${error.message}` })
-      setUploading(false)
-      return
+    if (!useReal) {
+      // Build from mock data
+      const groups = new Map<string, StandardGroup>()
+      for (const mock of MOCK_EVIDENCE) {
+        if (mock.period !== activePeriod) continue
+        if (!groups.has(mock.standard)) {
+          groups.set(mock.standard, { standard: mock.standard, items: [], missing: [] })
+        }
+        const g = groups.get(mock.standard)!
+        if (mock.present) {
+          g.items.push({
+            id: mock.file_name,
+            file_name: mock.file_name,
+            file_path: '',
+            file_type: mock.file_type,
+            file_size_bytes: mock.file_size_bytes,
+            created_at: new Date().toISOString(),
+            uploaded_by: null,
+            checkpoint_id: null,
+            tags: {},
+          })
+        } else {
+          g.missing.push({
+            checkpointId: mock.controlCode,
+            controlCode: mock.controlCode,
+            controlTitle: mock.controlTitle,
+            standard: mock.standard,
+            period: mock.period,
+          })
+        }
+      }
+      return Array.from(groups.values()).sort((a, b) => a.standard.localeCompare(b.standard))
     }
 
-    // Create evidence record in the database
-    const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-
-    const { error: dbError } = await supabase.from("evidence").insert({
-      org_id: org.id,
-      file_path: path,
-      file_name: file.name,
-      file_type: inferFileType(file.name),
-      file_size_bytes: file.size,
-      uploaded_by: user?.id ?? null,
-      tags: {},
-    })
-
-    if (dbError) {
-      setActionMsg({ type: "error", text: `File uploaded but record failed: ${dbError.message}` })
-    } else {
-      setActionMsg({ type: "success", text: `"${file.name}" uploaded successfully` })
-      fetchEvidence()
+    // Real data
+    const groups = new Map<string, StandardGroup>()
+    const periodItems = evidenceRows.filter(r => r.checkpoint?.period === activePeriod)
+    for (const item of periodItems) {
+      const std = item.checkpoint?.control?.standard ?? 'Other'
+      if (!groups.has(std)) {
+        groups.set(std, { standard: std, items: [], missing: [] })
+      }
+      groups.get(std)!.items.push(item)
     }
+    const periodMissing = missingEvidence.filter(m => m.period === activePeriod)
+    for (const m of periodMissing) {
+      if (!groups.has(m.standard)) {
+        groups.set(m.standard, { standard: m.standard, items: [], missing: [] })
+      }
+      groups.get(m.standard)!.missing.push(m)
+    }
+    return Array.from(groups.values()).sort((a, b) => a.standard.localeCompare(b.standard))
+  }, [evidenceRows, missingEvidence, activePeriod])
 
-    setUploading(false)
-    // Reset the file input so the same file can be re-selected
-    if (fileInputRef.current) fileInputRef.current.value = ""
+  async function handleViewFile(item: EvidenceRow) {
+    if (!orgId || !item.file_path) return
+    const url = await getEvidenceUrl(orgId, item.file_path)
+    if (url) window.open(url, '_blank')
   }
 
-  // ── View / Download handler ─────────────────────────────
-  async function handleView(item: EvidenceItem) {
-    if (!org?.id) return
-    const url = await getEvidenceUrl(org.id, item.filePath)
-    if (url) {
-      window.open(url, "_blank")
-    } else {
-      setActionMsg({ type: "error", text: "Could not generate download URL" })
+  async function handleExportBinder() {
+    setExporting(true)
+    try {
+      // Collect all evidence items for the period
+      const allItems = standardGroups.flatMap(g => g.items)
+      const allMissing = standardGroups.flatMap(g => g.missing)
+
+      // Build HTML manifest
+      const rows = allItems.map(item => {
+        const std = item.checkpoint?.control?.standard ?? '—'
+        const code = item.checkpoint?.control?.code ?? '—'
+        const title = item.checkpoint?.control?.title ?? '—'
+        const uploader = item.uploader?.full_name ?? '—'
+        const date = new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        return `<tr>
+          <td style="padding:8px 12px;border:1px solid #ddd">${item.file_name}</td>
+          <td style="padding:8px 12px;border:1px solid #ddd">${std}</td>
+          <td style="padding:8px 12px;border:1px solid #ddd">${code}</td>
+          <td style="padding:8px 12px;border:1px solid #ddd">${title}</td>
+          <td style="padding:8px 12px;border:1px solid #ddd">${formatFileSize(item.file_size_bytes)}</td>
+          <td style="padding:8px 12px;border:1px solid #ddd">${uploader}</td>
+          <td style="padding:8px 12px;border:1px solid #ddd">${date}</td>
+        </tr>`
+      }).join('')
+
+      const missingRows = allMissing.map(m => {
+        return `<tr style="background:#FEF2F2">
+          <td style="padding:8px 12px;border:1px solid #ddd;color:#DC2626;font-weight:600">MISSING</td>
+          <td style="padding:8px 12px;border:1px solid #ddd">${m.standard}</td>
+          <td style="padding:8px 12px;border:1px solid #ddd">${m.controlCode}</td>
+          <td style="padding:8px 12px;border:1px solid #ddd">${m.controlTitle}</td>
+          <td style="padding:8px 12px;border:1px solid #ddd" colspan="3">Evidence not uploaded</td>
+        </tr>`
+      }).join('')
+
+      const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Evidence Binder — ${formatPeriod(activePeriod)}</title>
+<style>
+  body { font-family: 'Source Sans 3', system-ui, sans-serif; padding: 40px; color: #262626; }
+  h1 { font-family: Georgia, serif; color: #171717; }
+  h2 { color: #2A8BA8; margin-top: 32px; }
+  table { border-collapse: collapse; width: 100%; margin-top: 16px; font-size: 13px; }
+  th { background: #F5F5F5; padding: 10px 12px; text-align: left; border: 1px solid #ddd; font-weight: 600; }
+  .summary { display: flex; gap: 24px; margin: 20px 0; }
+  .stat { padding: 16px; background: #F0F9FC; border-radius: 8px; text-align: center; }
+  .stat-num { font-size: 28px; font-weight: 700; color: #2A8BA8; }
+  .stat-label { font-size: 12px; color: #737373; margin-top: 4px; }
+</style></head><body>
+<h1>REPrieve.ai Evidence Binder</h1>
+<p style="color:#737373">Period: <strong>${formatPeriod(activePeriod)}</strong> | Generated: ${new Date().toLocaleString()}</p>
+<div class="summary">
+  <div class="stat"><div class="stat-num">${allItems.length}</div><div class="stat-label">Evidence Files</div></div>
+  <div class="stat"><div class="stat-num">${allMissing.length}</div><div class="stat-label">Missing Items</div></div>
+  <div class="stat"><div class="stat-num">${standardGroups.length}</div><div class="stat-label">Standards</div></div>
+</div>
+<h2>Evidence Index</h2>
+<table>
+  <thead><tr><th>File Name</th><th>Standard</th><th>Control</th><th>Checkpoint</th><th>Size</th><th>Uploaded By</th><th>Date</th></tr></thead>
+  <tbody>${rows}${missingRows}</tbody>
+</table>
+</body></html>`
+
+      const blob = new Blob([html], { type: 'text/html' })
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+    } finally {
+      setExporting(false)
     }
   }
 
-  async function handleDownload(item: EvidenceItem) {
-    if (!org?.id) return
-    const url = await getEvidenceUrl(org.id, item.filePath)
-    if (url) {
-      const a = document.createElement("a")
-      a.href = url
-      a.download = item.fileName
-      a.click()
-    } else {
-      setActionMsg({ type: "error", text: "Could not generate download URL" })
-    }
-  }
+  // ── Render ─────────────────────────────────────────────
 
-  // ── Delete handler ──────────────────────────────────────
-  async function handleDelete(item: EvidenceItem) {
-    if (!org?.id) return
-    if (!confirm(`Delete "${item.fileName}"? This cannot be undone.`)) return
-
-    setDeleting(item.id)
-    setActionMsg(null)
-
-    // Delete from storage
-    const { error: storageErr } = await deleteEvidence(org.id, item.filePath)
-    if (storageErr) {
-      setActionMsg({ type: "error", text: `Storage delete failed: ${storageErr.message}` })
-      setDeleting(null)
-      return
-    }
-
-    // Delete DB record
-    const supabase = createClient()
-    const { error: dbErr } = await supabase
-      .from("evidence")
-      .delete()
-      .eq("id", item.id)
-
-    if (dbErr) {
-      setActionMsg({ type: "error", text: `File removed but DB record failed: ${dbErr.message}` })
-    } else {
-      setActionMsg({ type: "success", text: `"${item.fileName}" deleted` })
-      fetchEvidence()
-    }
-    setDeleting(null)
-  }
-
-  function toggleGroupBy(mode: "standard" | "month") {
-    setGroupBy(g => (g === mode ? null : mode))
-  }
-
-  // ── Render ───────────────────────────────────────────
   return (
-    <div style={{ padding: "32px" }}>
-
-      {/* ── Page header ──────────────────────────── */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
+    <div style={{ padding: '32px' }}>
+      {/* Page Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h1 style={{ fontFamily: "var(--font-source-serif-4, serif)", fontSize: "24px", fontWeight: 700, color: "#171717", margin: 0, marginBottom: "4px" }}>
-            Evidence Library
+          <h1 style={{ fontFamily: 'var(--font-source-serif-4, serif)', fontSize: '24px', fontWeight: 700, color: '#171717', marginBottom: '4px' }}>
+            Evidence Binder
           </h1>
-          <p style={{ fontSize: "14px", color: "#737373", margin: 0 }}>
+          <p style={{ fontSize: '14px', color: '#737373' }}>
             Audit-ready evidence organized by standard and period
           </p>
         </div>
-        <div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            onChange={handleUpload}
-            style={{ display: "none" }}
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.png,.gif,.mp4,.mov,.avi,.webm"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading || !org?.id}
-            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: uploading ? "#A3A3A3" : "#2A8BA8", color: "#fff", border: "none", borderRadius: "6px", fontSize: "13px", fontWeight: 600, cursor: uploading ? "not-allowed" : "pointer" }}
-          >
-            {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-            {uploading ? "Uploading…" : "Upload Evidence"}
-          </button>
-        </div>
-      </div>
-
-      {/* ── Action message ─────────────────────── */}
-      {actionMsg && (
-        <div
+        <button
+          onClick={handleExportBinder}
+          disabled={exporting}
           style={{
-            padding: "10px 14px",
-            marginBottom: "16px",
-            borderRadius: "8px",
-            fontSize: "13px",
-            fontWeight: 500,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            background: actionMsg.type === "success" ? "#F0FDF4" : "#FEF2F2",
-            color: actionMsg.type === "success" ? "#15803D" : "#DC2626",
-            border: `1px solid ${actionMsg.type === "success" ? "#BBF7D0" : "#FECACA"}`,
+            padding: '9px 18px',
+            background: exporting ? '#A3A3A3' : '#2A8BA8',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '6px',
+            fontSize: '13px',
+            fontWeight: 600,
+            cursor: exporting ? 'not-allowed' : 'pointer',
+            fontFamily: 'inherit',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
           }}
         >
-          <span>{actionMsg.text}</span>
-          <button onClick={() => setActionMsg(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, display: "flex" }}>
-            <X size={14} />
-          </button>
+          {exporting ? '⏳ Preparing binder…' : '📥 Export Binder'}
+        </button>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '6px', padding: '10px 14px', fontSize: '13px', color: '#B91C1C', marginBottom: '16px' }}>
+          {error}
         </div>
       )}
 
-      {/* ── Filter bar ───────────────────────────── */}
-      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", padding: "14px 16px", background: "#FAFAFA", border: "1px solid #E8E8E8", borderRadius: "8px", marginBottom: "16px" }}>
-        {/* Period */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <label style={{ fontSize: "10px", fontWeight: 700, color: "#737373", textTransform: "uppercase", letterSpacing: "0.05em" }}>Period</label>
-          <select value={periodFilter} onChange={e => setPeriodFilter(e.target.value)} style={selectStyle}>
-            <option value="all">All Periods</option>
-            {availablePeriods.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-        </div>
-
-        {/* Standard */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <label style={{ fontSize: "10px", fontWeight: 700, color: "#737373", textTransform: "uppercase", letterSpacing: "0.05em" }}>Standard</label>
-          <select value={standardFilter} onChange={e => setStandardFilter(e.target.value)} style={selectStyle}>
-            <option value="all">All Standards</option>
-            {availableStandards.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-
-        {/* Program */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <label style={{ fontSize: "10px", fontWeight: 700, color: "#737373", textTransform: "uppercase", letterSpacing: "0.05em" }}>Program</label>
-          <select value={programFilter} onChange={e => setProgramFilter(e.target.value)} style={selectStyle}>
-            <option value="all">All Programs</option>
-            <option value="IOP">IOP</option>
-            <option value="Residential">Residential</option>
-          </select>
-        </div>
-
-        {/* File Type */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <label style={{ fontSize: "10px", fontWeight: 700, color: "#737373", textTransform: "uppercase", letterSpacing: "0.05em" }}>File Type</label>
-          <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={selectStyle}>
-            <option value="all">All Types</option>
-            <option value="pdf">PDF</option>
-            <option value="image">Image</option>
-            <option value="video">Video</option>
-            <option value="document">Document</option>
-          </select>
-        </div>
-
-        {/* Spacer */}
-        <div style={{ flex: 1 }} />
-
-        {/* Grouping toggles */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-end" }}>
-          <label style={{ fontSize: "10px", fontWeight: 700, color: "#737373", textTransform: "uppercase", letterSpacing: "0.05em" }}>Audit Binder</label>
-          <div style={{ display: "flex", gap: 6 }}>
+      {/* Period Tabs */}
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
+        {periods.map(period => {
+          const isActive = period === activePeriod
+          return (
             <button
-              onClick={() => toggleGroupBy("standard")}
-              style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 6, border: "1px solid", borderColor: groupBy === "standard" ? "#2A8BA8" : "#E8E8E8", background: groupBy === "standard" ? "#E8F6FA" : "#fff", color: groupBy === "standard" ? "#2A8BA8" : "#525252", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
+              key={period}
+              onClick={() => setActivePeriod(period)}
+              style={{
+                padding: '7px 16px',
+                borderRadius: '20px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                border: isActive ? 'none' : '1px solid #D4D4D4',
+                background: isActive ? '#2A8BA8' : '#fff',
+                color: isActive ? '#fff' : '#525252',
+                transition: 'all 0.15s',
+              }}
             >
-              <Layers size={13} />
-              By Standard
+              {formatPeriod(period)}
             </button>
-            <button
-              onClick={() => toggleGroupBy("month")}
-              style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 6, border: "1px solid", borderColor: groupBy === "month" ? "#2A8BA8" : "#E8E8E8", background: groupBy === "month" ? "#E8F6FA" : "#fff", color: groupBy === "month" ? "#2A8BA8" : "#525252", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
-            >
-              <Calendar size={13} />
-              By Month
-            </button>
-          </div>
-        </div>
-
-        {/* View toggle */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-end" }}>
-          <label style={{ fontSize: "10px", fontWeight: 700, color: "#737373", textTransform: "uppercase", letterSpacing: "0.05em" }}>View</label>
-          <div style={{ display: "flex", border: "1px solid #E8E8E8", borderRadius: 6, overflow: "hidden" }}>
-            {(["grid", "list"] as const).map((v, i) => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", fontSize: "12px", fontWeight: 600, border: "none", cursor: "pointer", background: view === v ? "#2A8BA8" : "#fff", color: view === v ? "#fff" : "#525252", borderRight: i === 0 ? "1px solid #E8E8E8" : "none" }}
-              >
-                {v === "grid" ? <LayoutGrid size={13} /> : <List size={13} />}
-                {v === "grid" ? "Grid" : "List"}
-              </button>
-            ))}
-          </div>
-        </div>
+          )
+        })}
       </div>
 
-      {/* ── Result count ─────────────────────────── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <span style={{ fontSize: "13px", color: "#737373" }}>
-          {loading ? "Loading…" : `${filtered.length} item${filtered.length !== 1 ? "s" : ""}`}
-          {groupBy && ` grouped by ${groupBy}`}
-        </span>
-        {(periodFilter !== "all" || standardFilter !== "all" || programFilter !== "all" || typeFilter !== "all") && (
-          <button
-            onClick={() => { setPeriodFilter("all"); setStandardFilter("all"); setProgramFilter("all"); setTypeFilter("all") }}
-            style={{ fontSize: "12px", color: "#2A8BA8", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}
-          >
-            Clear filters ×
-          </button>
-        )}
-      </div>
-
-      {/* ── Loading state ──────────────────────── */}
+      {/* Loading */}
       {loading && (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "60px 0", color: "#737373", gap: "8px" }}>
-          <Loader2 size={18} className="animate-spin" />
-          <span style={{ fontSize: "14px" }}>Loading evidence…</span>
+        <div style={{ padding: '48px', textAlign: 'center', color: '#A3A3A3', fontSize: '14px' }}>
+          Loading evidence…
         </div>
       )}
 
-      {/* ── Content ──────────────────────────────── */}
-      {!loading && filtered.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: "#A3A3A3", fontSize: "14px" }}>
-          {evidence.length === 0
-            ? "No evidence uploaded yet. Click \"Upload Evidence\" to add files."
-            : "No evidence matches the selected filters."}
+      {/* Standards Grid */}
+      {!loading && standardGroups.length === 0 && (
+        <div style={{ padding: '48px', textAlign: 'center', color: '#A3A3A3', fontSize: '14px', background: '#fff', border: '1px solid #E8E8E8', borderRadius: '10px' }}>
+          No evidence found for {formatPeriod(activePeriod)}. Upload evidence via checkpoint pages.
         </div>
-      ) : !loading && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-          {groups.map(group => (
-            <div key={group.key}>
-              {/* Group header */}
-              {groupBy && (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {groupBy === "standard"
-                      ? <StandardBadge standard={group.label} />
-                      : <span style={{ padding: "2px 10px", borderRadius: 10, fontSize: "12px", fontWeight: 700, background: "#E8F6FA", color: "#2A8BA8" }}>{group.label}</span>
-                    }
-                    <span style={{ fontSize: "12px", color: "#737373" }}>
-                      {group.items.length} file{group.items.length !== 1 ? "s" : ""}
-                    </span>
-                  </div>
-                  <div style={{ flex: 1, height: 1, background: "#E8E8E8" }} />
-                </div>
-              )}
+      )}
 
-              {/* Grid view */}
-              {view === "grid" && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-                  {group.items.map(item => (
-                    <EvidenceCard
-                      key={item.id}
-                      item={item}
-                      onView={() => handleView(item)}
-                      onDownload={() => handleDownload(item)}
-                      onDelete={() => handleDelete(item)}
-                      isDeleting={deleting === item.id}
-                    />
+      {!loading && standardGroups.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '20px' }}>
+          {standardGroups.map(group => {
+            const sc = STANDARD_COLORS[group.standard] ?? STANDARD_COLORS.Internal
+            const totalCount = group.items.length + group.missing.length
+            const presentCount = group.items.length
+            const allPresent = group.missing.length === 0
+
+            return (
+              <div
+                key={group.standard}
+                style={{
+                  background: '#fff',
+                  border: '1px solid #E8E8E8',
+                  borderRadius: '10px',
+                  borderLeft: `3px solid ${sc.accent}`,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                  overflow: 'hidden',
+                }}
+              >
+                {/* Card header */}
+                <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{
+                      padding: '3px 10px',
+                      borderRadius: '10px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      background: sc.bg,
+                      color: sc.text,
+                    }}>
+                      {group.standard}
+                    </span>
+                    <span style={{
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      background: allPresent ? '#16A34A' : '#DC2626',
+                      display: 'inline-block',
+                      flexShrink: 0,
+                    }} />
+                  </div>
+                  <span style={{ fontSize: '12px', color: '#737373', fontWeight: 500 }}>
+                    {presentCount} of {totalCount} items
+                  </span>
+                </div>
+
+                {/* Divider */}
+                <div style={{ height: '1px', background: '#E8E8E8' }} />
+
+                {/* Evidence items */}
+                <div style={{ padding: '8px 0' }}>
+                  {group.items.map(item => {
+                    const ft = FILE_ICONS[item.file_type ?? getFileTypeFromName(item.file_name)] ?? FILE_ICONS.document
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => handleViewFile(item)}
+                        style={{
+                          padding: '10px 18px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          cursor: item.file_path ? 'pointer' : 'default',
+                        }}
+                        onMouseEnter={(e) => { if (item.file_path) e.currentTarget.style.background = '#FAFAFA' }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+                      >
+                        {/* File type badge */}
+                        <span style={{
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          background: ft.bg,
+                          color: ft.color,
+                          letterSpacing: '0.03em',
+                          flexShrink: 0,
+                        }}>
+                          {ft.label}
+                        </span>
+
+                        {/* File name */}
+                        <span style={{ fontSize: '13px', color: '#262626', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {item.file_name}
+                        </span>
+
+                        {/* File size */}
+                        <span style={{ fontSize: '12px', color: '#A3A3A3', flexShrink: 0 }}>
+                          {formatFileSize(item.file_size_bytes)}
+                        </span>
+
+                        {/* View button */}
+                        {item.file_path && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleViewFile(item) }}
+                            style={{
+                              padding: '3px 8px',
+                              background: '#F5F5F5',
+                              border: '1px solid #E8E8E8',
+                              borderRadius: '4px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              color: '#525252',
+                              cursor: 'pointer',
+                              fontFamily: 'inherit',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              flexShrink: 0,
+                            }}
+                          >
+                            👁 View
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+
+                  {/* Missing evidence rows */}
+                  {group.missing.map(m => (
+                    <div
+                      key={m.checkpointId}
+                      style={{
+                        margin: '4px 12px',
+                        padding: '10px 14px',
+                        background: '#FEF2F2',
+                        border: '1px dashed #FECACA',
+                        borderRadius: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      <span style={{ fontSize: '14px', flexShrink: 0 }}>⚠</span>
+                      <div style={{ flex: 1 }}>
+                        <span style={{ fontSize: '13px', color: '#DC2626', fontWeight: 600 }}>
+                          Missing:
+                        </span>
+                        {' '}
+                        <span style={{ fontSize: '13px', color: '#B91C1C' }}>
+                          {m.controlTitle} evidence
+                        </span>
+                        <span style={{ fontSize: '11px', color: '#A3A3A3', marginLeft: '6px', fontFamily: 'monospace' }}>
+                          {m.controlCode}
+                        </span>
+                      </div>
+                    </div>
                   ))}
                 </div>
-              )}
-
-              {/* List view */}
-              {view === "list" && (
-                <EvidenceTable
-                  items={group.items}
-                  onView={handleView}
-                  onDownload={handleDownload}
-                  onDelete={handleDelete}
-                  deletingId={deleting}
-                />
-              )}
-            </div>
-          ))}
+              </div>
+            )
+          })}
         </div>
       )}
-    </div>
-  )
-}
-
-// ── Evidence Card (grid view) ────────────────────────────
-function EvidenceCard({
-  item,
-  onView,
-  onDownload,
-  onDelete,
-  isDeleting,
-}: {
-  item: EvidenceItem
-  onView: () => void
-  onDownload: () => void
-  onDelete: () => void
-  isDeleting: boolean
-}) {
-  const [hovered, setHovered] = useState(false)
-
-  return (
-    <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        background: "#fff",
-        border: "1px solid #E8E8E8",
-        borderRadius: 10,
-        padding: "18px 20px",
-        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.08)" : "0 1px 3px rgba(0,0,0,0.06)",
-        transition: "box-shadow 0.15s",
-        position: "relative",
-      }}
-    >
-      {/* File icon + name */}
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
-        <FileTypeBadge fileType={item.fileType} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontSize: "13px", fontWeight: 600, color: "#171717", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {item.fileName}
-          </p>
-          <p style={{ fontSize: "12px", color: "#A3A3A3", margin: "3px 0 0" }}>{item.fileSize}</p>
-        </div>
-      </div>
-
-      {/* Badges */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
-        <StandardBadge standard={item.standard} />
-        <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: "11px", fontWeight: 600, background: "#F5F5F5", color: "#525252" }}>
-          {item.program}
-        </span>
-        <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: "11px", fontWeight: 600, background: "#E8F6FA", color: "#2A8BA8" }}>
-          {item.period}
-        </span>
-      </div>
-
-      {/* Checkpoint ref */}
-      <p style={{ fontSize: "12px", color: "#525252", margin: "0 0 3px" }}>
-        <span style={{ fontWeight: 600 }}>Checkpoint:</span>{" "}
-        <span style={{ fontFamily: "monospace", fontSize: "11px", color: "#737373" }}>{item.checkpointCode}</span>
-        {item.checkpointTitle !== "—" && <>{" — "}{item.checkpointTitle}</>}
-      </p>
-      <p style={{ fontSize: "12px", color: "#A3A3A3", margin: "0 0 10px" }}>
-        Uploaded by {item.uploadedBy} · {item.uploadedAt}
-      </p>
-
-      {/* Action buttons */}
-      <div style={{ display: "flex", gap: 8, borderTop: "1px solid #F5F5F5", paddingTop: 10 }}>
-        <button
-          onClick={onView}
-          style={{ display: "flex", alignItems: "center", gap: 4, fontSize: "12px", color: "#2A8BA8", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}
-        >
-          <Eye size={12} /> View
-        </button>
-        <span style={{ color: "#E8E8E8" }}>|</span>
-        <button
-          onClick={onDownload}
-          style={{ display: "flex", alignItems: "center", gap: 4, fontSize: "12px", color: "#2A8BA8", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}
-        >
-          <Download size={12} /> Download
-        </button>
-        <span style={{ color: "#E8E8E8" }}>|</span>
-        <button
-          onClick={onDelete}
-          disabled={isDeleting}
-          style={{ display: "flex", alignItems: "center", gap: 4, fontSize: "12px", color: "#DC2626", background: "none", border: "none", cursor: isDeleting ? "not-allowed" : "pointer", fontWeight: 600, padding: 0, opacity: isDeleting ? 0.5 : 1 }}
-        >
-          {isDeleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-          Delete
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── Evidence Table (list view) ───────────────────────────
-function EvidenceTable({
-  items,
-  onView,
-  onDownload,
-  onDelete,
-  deletingId,
-}: {
-  items: EvidenceItem[]
-  onView: (item: EvidenceItem) => void
-  onDownload: (item: EvidenceItem) => void
-  onDelete: (item: EvidenceItem) => void
-  deletingId: string | null
-}) {
-  return (
-    <div style={{ background: "#fff", border: "1px solid #E8E8E8", borderRadius: 10, overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
-        <thead>
-          <tr style={{ background: "#FAFAFA", borderBottom: "2px solid #E8E8E8" }}>
-            {["File Name", "Type", "Checkpoint", "Standard", "Program", "Period", "Uploaded By", "Date"].map(col => (
-              <th key={col} style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, fontSize: "11px", color: "#737373", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
-                {col}
-              </th>
-            ))}
-            <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, fontSize: "11px", color: "#737373", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.length === 0 && (
-            <tr>
-              <td colSpan={9} style={{ padding: "40px", textAlign: "center", color: "#A3A3A3", fontSize: "14px" }}>
-                No evidence items
-              </td>
-            </tr>
-          )}
-          {items.map((item, i) => (
-            <tr key={item.id} style={{ borderBottom: i < items.length - 1 ? "1px solid #F5F5F5" : "none" }}>
-              <td style={{ padding: "11px 14px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <FileTypeBadge fileType={item.fileType} />
-                  <div>
-                    <div style={{ fontWeight: 600, color: "#171717", fontSize: "13px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {item.fileName}
-                    </div>
-                    <div style={{ fontSize: "11px", color: "#A3A3A3" }}>{item.fileSize}</div>
-                  </div>
-                </div>
-              </td>
-              <td style={{ padding: "11px 14px", color: "#525252", textTransform: "capitalize" }}>
-                {item.fileType}
-              </td>
-              <td style={{ padding: "11px 14px" }}>
-                <div style={{ fontSize: "11px", fontFamily: "monospace", color: "#737373" }}>{item.checkpointCode}</div>
-                <div style={{ fontSize: "12px", color: "#525252" }}>{item.checkpointTitle}</div>
-              </td>
-              <td style={{ padding: "11px 14px" }}>
-                <StandardBadge standard={item.standard} />
-              </td>
-              <td style={{ padding: "11px 14px", color: "#525252" }}>{item.program}</td>
-              <td style={{ padding: "11px 14px" }}>
-                <span style={{ padding: "2px 8px", borderRadius: 10, fontSize: "11px", fontWeight: 600, background: "#E8F6FA", color: "#2A8BA8" }}>
-                  {item.period}
-                </span>
-              </td>
-              <td style={{ padding: "11px 14px", color: "#525252" }}>{item.uploadedBy}</td>
-              <td style={{ padding: "11px 14px", color: "#737373", whiteSpace: "nowrap" }}>{item.uploadedAt}</td>
-              <td style={{ padding: "11px 14px" }}>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    onClick={() => onView(item)}
-                    style={{ fontSize: "12px", color: "#2A8BA8", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}
-                  >
-                    View
-                  </button>
-                  <span style={{ color: "#E8E8E8" }}>|</span>
-                  <button
-                    onClick={() => onDownload(item)}
-                    style={{ fontSize: "12px", color: "#2A8BA8", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}
-                  >
-                    Download
-                  </button>
-                  <span style={{ color: "#E8E8E8" }}>|</span>
-                  <button
-                    onClick={() => onDelete(item)}
-                    disabled={deletingId === item.id}
-                    style={{ fontSize: "12px", color: "#DC2626", background: "none", border: "none", cursor: deletingId === item.id ? "not-allowed" : "pointer", fontWeight: 600, padding: 0, opacity: deletingId === item.id ? 0.5 : 1 }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   )
 }

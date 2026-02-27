@@ -11,84 +11,47 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Source Sans 3', system-ui, sans-serif" }}>
-      {/* Left panel — brand / showcase */}
-      <div
+    <div className="flex min-h-screen font-sans">
+      {/* Left panel — brand / showcase — hidden on mobile, 35% on tablet, 42% on desktop */}
+      <div className="hidden md:flex md:w-[35%] lg:w-[42%] flex-col p-8 lg:p-12 text-white relative overflow-hidden"
         style={{
-          width: '42%',
           background: 'linear-gradient(165deg, #1e6f88 0%, #2A8BA8 35%, #205f75 70%, #163f50 100%)',
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '48px 40px',
-          color: '#ffffff',
-          position: 'relative',
-          overflow: 'hidden',
         }}
       >
         {/* Subtle background texture circles */}
-        <div style={{
-          position: 'absolute', top: '-80px', right: '-80px',
-          width: '320px', height: '320px',
-          borderRadius: '50%',
-          background: 'rgba(255,255,255,0.04)',
-          pointerEvents: 'none',
-        }} />
-        <div style={{
-          position: 'absolute', bottom: '60px', left: '-60px',
-          width: '220px', height: '220px',
-          borderRadius: '50%',
-          background: 'rgba(255,255,255,0.03)',
-          pointerEvents: 'none',
-        }} />
+        <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full pointer-events-none"
+          style={{ background: 'rgba(255,255,255,0.04)' }} />
+        <div className="absolute bottom-16 -left-14 w-56 h-56 rounded-full pointer-events-none"
+          style={{ background: 'rgba(255,255,255,0.03)' }} />
 
         {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '48px' }}>
-          <div style={{
-            width: '40px', height: '40px',
-            border: '2px solid rgba(255,255,255,0.7)',
-            borderRadius: '6px',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '20px', fontWeight: '700',
-            fontFamily: "'Source Serif 4', Georgia, serif",
-            letterSpacing: '-0.5px',
-          }}>
+        <div className="flex items-center gap-3 mb-12">
+          <div className="w-10 h-10 border-2 border-white/70 rounded-[6px] flex items-center justify-center text-xl font-bold font-serif tracking-tight">
             R
           </div>
           <div>
-            <div style={{ fontSize: '18px', fontWeight: '700', lineHeight: 1, letterSpacing: '-0.3px' }}>
-              REPrieve.ai
-            </div>
-            <div style={{ fontSize: '11px', fontWeight: '500', opacity: 0.7, letterSpacing: '0.5px', textTransform: 'uppercase', marginTop: '2px' }}>
+            <div className="text-lg font-bold leading-none tracking-tight">REPrieve.ai</div>
+            <div className="text-[11px] font-medium opacity-70 tracking-[0.5px] uppercase mt-0.5">
               Compliance OS
             </div>
           </div>
         </div>
 
         {/* Org showcase */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <div style={{
-            fontSize: '11px', fontWeight: '600', letterSpacing: '1.5px',
-            textTransform: 'uppercase', opacity: 0.6, marginBottom: '12px',
-          }}>
+        <div className="flex-1 flex flex-col justify-center">
+          <div className="text-[11px] font-semibold tracking-[1.5px] uppercase opacity-60 mb-3">
             Member Portal
           </div>
-          <h1 style={{
-            fontFamily: "'Source Serif 4', Georgia, serif",
-            fontSize: '28px', fontWeight: '700', lineHeight: 1.2,
-            marginBottom: '16px', letterSpacing: '-0.5px',
-          }}>
+          <h1 className="font-serif text-2xl lg:text-[28px] font-bold leading-tight mb-4 tracking-tight">
             Cholla Behavioral Health
           </h1>
-          <p style={{
-            fontSize: '14px', lineHeight: '1.65', opacity: 0.8,
-            marginBottom: '40px', maxWidth: '340px',
-          }}>
+          <p className="text-sm leading-relaxed opacity-80 mb-10 max-w-xs lg:max-w-sm">
             Your compliance and quality management program — automated, audit-ready, and always current.
             Powered by an agentic AI team that works alongside your staff.
           </p>
 
           {/* Feature cards */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div className="flex flex-col gap-3">
             {[
               {
                 icon: '🛡',
@@ -113,20 +76,16 @@ export default function AuthLayout({
             ].map((card) => (
               <div
                 key={card.title}
+                className="rounded-lg p-3 px-4 flex items-start gap-3 border"
                 style={{
                   background: 'rgba(255,255,255,0.08)',
-                  borderRadius: '8px',
-                  padding: '12px 16px',
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '12px',
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderColor: 'rgba(255,255,255,0.1)',
                 }}
               >
-                <span style={{ fontSize: '18px', lineHeight: 1, marginTop: '1px' }}>{card.icon}</span>
+                <span className="text-lg leading-none mt-0.5">{card.icon}</span>
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '2px' }}>{card.title}</div>
-                  <div style={{ fontSize: '12px', opacity: 0.7, lineHeight: '1.5' }}>{card.desc}</div>
+                  <div className="text-[13px] font-semibold mb-0.5">{card.title}</div>
+                  <div className="text-[12px] opacity-70 leading-snug">{card.desc}</div>
                 </div>
               </div>
             ))}
@@ -134,31 +93,29 @@ export default function AuthLayout({
         </div>
 
         {/* Footer */}
-        <div style={{
-          marginTop: '40px',
-          fontSize: '11px', opacity: 0.5,
-          lineHeight: '1.6', borderTop: '1px solid rgba(255,255,255,0.1)',
-          paddingTop: '16px',
-        }}>
+        <div className="mt-10 pt-4 text-[11px] opacity-50 leading-relaxed"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.1)' }}>
           An IC&RC-aligned Compliance Operating System<br />
           Built for Arizona Behavioral Health
         </div>
       </div>
 
-      {/* Right panel — form area */}
-      <div
-        style={{
-          width: '58%',
-          background: '#FAFAFA',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '48px 40px',
-          minHeight: '100vh',
-        }}
-      >
-        <div style={{ width: '100%', maxWidth: '420px' }}>
+      {/* Right panel — form area — full width on mobile */}
+      <div className="flex-1 bg-g50 flex flex-col items-center justify-center px-6 py-12 md:px-10 min-h-screen">
+        {/* Mobile logo — only shows on small screens */}
+        <div className="md:hidden flex items-center gap-3 mb-8">
+          <div className="w-9 h-9 border-2 border-blue-dark rounded-[6px] flex items-center justify-center text-lg font-bold font-serif text-blue-dark">
+            R
+          </div>
+          <div>
+            <div className="text-base font-bold text-g900 leading-none tracking-tight">REPrieve.ai</div>
+            <div className="text-[10px] font-medium text-g500 tracking-[0.5px] uppercase mt-0.5">
+              Compliance OS
+            </div>
+          </div>
+        </div>
+
+        <div className="w-full max-w-[420px]">
           {children}
         </div>
       </div>

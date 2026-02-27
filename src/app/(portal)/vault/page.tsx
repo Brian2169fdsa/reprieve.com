@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import type { Policy, PolicyStatus } from '@/lib/types';
+import { uploadPolicyDocument } from '@/lib/supabase/storage';
+import type { Policy, PolicyStatus, Profile } from '@/lib/types';
 
 // ─── Style constants ──────────────────────────────────────────────────────────
 
@@ -16,21 +17,24 @@ const STATUS_STYLES: Record<string, { bg: string; color: string; label: string }
 };
 
 const CAT_COLORS: Record<string, { bg: string; color: string }> = {
-  HIPAA:      { bg: '#F5F3FF', color: '#6D28D9' },
-  Safety:     { bg: '#FFFBEB', color: '#B45309' },
-  HR:         { bg: '#FDF4FF', color: '#9333EA' },
-  Clinical:   { bg: '#F0FDF4', color: '#15803D' },
-  Operations: { bg: '#EFF6FF', color: '#1D4ED8' },
-  Billing:    { bg: '#FFF7ED', color: '#C2410C' },
-  Admin:      { bg: '#F5F5F5', color: '#525252' },
+  HIPAA:          { bg: '#F5F3FF', color: '#6D28D9' },
+  Safety:         { bg: '#FFFBEB', color: '#B45309' },
+  HR:             { bg: '#FDF4FF', color: '#9333EA' },
+  Clinical:       { bg: '#F0FDF4', color: '#15803D' },
+  Operations:     { bg: '#EFF6FF', color: '#1D4ED8' },
+  Billing:        { bg: '#FFF7ED', color: '#C2410C' },
+  Administrative: { bg: '#F5F5F5', color: '#525252' },
+  Quality:        { bg: '#E8F6FA', color: '#0E7490' },
+  Admin:          { bg: '#F5F5F5', color: '#525252' },
 };
 
 const CAT_CODE: Record<string, string> = {
   HIPAA: 'HIPAA', Safety: 'SAF', HR: 'HR',
-  Clinical: 'CLN', Operations: 'OPS', Billing: 'BIL', Admin: 'ADM',
+  Clinical: 'CLN', Operations: 'OPS', Billing: 'BIL',
+  Administrative: 'ADM', Quality: 'QM', Admin: 'ADM',
 };
 
-const CATEGORIES = ['HIPAA', 'Safety', 'HR', 'Clinical', 'Operations', 'Billing', 'Admin'];
+const CATEGORIES = ['HIPAA', 'Safety', 'HR', 'Clinical', 'Operations', 'Administrative', 'Quality'];
 const PROGRAMS   = ['IOP', 'Residential'];
 const STATUSES   = ['draft', 'in_review', 'approved', 'effective', 'retired'];
 
@@ -85,7 +89,10 @@ interface NewPolicyForm {
   category: string;
   program: string[];
   department: string;
+  owner_id: string;
   review_cadence_months: number;
+  description: string;
+  document: File | null;
 }
 
 const EMPTY_FORM: NewPolicyForm = {
@@ -94,7 +101,10 @@ const EMPTY_FORM: NewPolicyForm = {
   category: 'HIPAA',
   program: [],
   department: '',
+  owner_id: '',
   review_cadence_months: 12,
+  description: '',
+  document: null,
 };
 
 export default function VaultPage() {
@@ -111,6 +121,8 @@ export default function VaultPage() {
   const [saving, setSaving]           = useState(false);
   const [orgId, setOrgId]             = useState<string | null>(null);
   const [userId, setUserId]           = useState<string | null>(null);
+  const [orgMembers, setOrgMembers]   = useState<Array<{ id: string; full_name: string }>>([]);
+  const [aiPolicyIds, setAiPolicyIds] = useState<Set<string>>(new Set());
 
   // Auto-suggest code from category + existing count
   useEffect(() => {
@@ -203,6 +215,24 @@ export default function VaultPage() {
       }
 
       setOrgId(membership.org_id);
+
+      // Load org members for owner dropdown
+      const { data: members } = await supabase
+        .from('org_members')
+        .select('user_id, profiles!user_id(id, full_name)')
+        .eq('org_id', membership.org_id)
+        .eq('is_active', true);
+
+      if (members) {
+        const memberList = members
+          .map((m) => {
+            const profile = m.profiles as unknown as { id: string; full_name: string } | null;
+            return profile ? { id: profile.id, full_name: profile.full_name } : null;
+          })
+          .filter(Boolean) as Array<{ id: string; full_name: string }>;
+        setOrgMembers(memberList);
+      }
+
       let pols = await loadPolicies(membership.org_id);
 
       if (pols.length === 0) {
@@ -211,6 +241,19 @@ export default function VaultPage() {
       }
 
       setPolicies(pols);
+
+      // Check for AI-created policies (those linked to ai_suggestions)
+      const { data: aiSuggestions } = await supabase
+        .from('ai_suggestions')
+        .select('entity_id')
+        .eq('org_id', membership.org_id)
+        .eq('entity_type', 'policy')
+        .not('entity_id', 'is', null);
+
+      if (aiSuggestions) {
+        setAiPolicyIds(new Set(aiSuggestions.map(s => s.entity_id!)));
+      }
+
       setLoading(false);
     };
 
@@ -222,6 +265,21 @@ export default function VaultPage() {
     setSaving(true);
 
     const supabase = createClient();
+
+    // Upload document if provided
+    let documentPath: string | null = null;
+    if (form.document) {
+      // Create a temporary ID for path
+      const tempId = crypto.randomUUID();
+      const result = await uploadPolicyDocument(orgId, tempId, form.document);
+      if (result.error) {
+        // Non-blocking — log but continue
+        console.warn('Document upload failed:', result.error.message);
+      } else {
+        documentPath = result.path;
+      }
+    }
+
     const { data: pol, error: polErr } = await supabase
       .from('policies')
       .insert({
@@ -231,9 +289,11 @@ export default function VaultPage() {
         category: form.category,
         program: form.program,
         department: form.department || null,
+        owner_id: form.owner_id || null,
         status: 'draft',
         review_cadence_months: form.review_cadence_months,
         next_review_date: addMonths(form.review_cadence_months),
+        settings: documentPath ? { document_path: documentPath, description: form.description || null } : { description: form.description || null },
       })
       .select('id')
       .single();
@@ -261,6 +321,16 @@ export default function VaultPage() {
     if (ver) {
       await supabase.from('policies').update({ current_version_id: ver.id }).eq('id', pol.id);
     }
+
+    // Write audit log
+    await supabase.from('audit_log').insert({
+      org_id: orgId,
+      user_id: userId,
+      action: 'policy.create',
+      entity_type: 'policy',
+      entity_id: pol.id,
+      metadata: { title: form.title, code: form.code },
+    });
 
     setShowModal(false);
     setForm(EMPTY_FORM);
@@ -290,6 +360,16 @@ export default function VaultPage() {
     background: '#fff',
     outline: 'none',
     fontFamily: 'inherit',
+  };
+
+  const labelStyle: React.CSSProperties = {
+    display: 'block',
+    fontSize: '12px',
+    fontWeight: 600,
+    color: '#404040',
+    marginBottom: '5px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
   };
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -389,11 +469,12 @@ export default function VaultPage() {
               {filtered.map((pol, i) => {
                 const ss = STATUS_STYLES[pol.status] ?? STATUS_STYLES.draft;
                 const cc = CAT_COLORS[pol.category] ?? { bg: '#F5F5F5', color: '#525252' };
-                const ownerName = (pol as Policy & { owner?: { full_name?: string } }).owner?.full_name ?? '—';
+                const ownerName = pol.owner?.full_name ?? '—';
                 const reviewDate = pol.next_review_date
                   ? new Date(pol.next_review_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
                   : '—';
                 const isPastDue = pol.next_review_date ? new Date(pol.next_review_date) < new Date() : false;
+                const isAi = aiPolicyIds.has(pol.id);
 
                 return (
                   <tr
@@ -407,7 +488,24 @@ export default function VaultPage() {
                       {pol.code}
                     </td>
                     <td style={{ padding: '14px 16px', fontSize: '14px', fontWeight: 500, color: '#171717', maxWidth: '280px' }}>
-                      {pol.title}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        {pol.title}
+                        {isAi && (
+                          <span style={{
+                            padding: '1px 6px',
+                            borderRadius: '8px',
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            background: '#E8F6FA',
+                            color: '#2A8BA8',
+                            border: '1px solid #B2E0ED',
+                            letterSpacing: '0.03em',
+                            flexShrink: 0,
+                          }}>
+                            AI
+                          </span>
+                        )}
+                      </span>
                     </td>
                     <td style={{ padding: '14px 16px' }}>
                       <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 600, background: cc.bg, color: cc.color }}>
@@ -448,24 +546,22 @@ export default function VaultPage() {
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
         >
-          <div style={{ background: '#fff', borderRadius: '10px', width: '100%', maxWidth: '520px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+          <div style={{ background: '#fff', borderRadius: '10px', width: '100%', maxWidth: '600px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)', overflow: 'hidden', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
             {/* Modal header */}
-            <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #E8E8E8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #E8E8E8', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
               <h2 style={{ fontFamily: 'var(--font-source-serif-4, serif)', fontSize: '18px', fontWeight: 700, color: '#171717' }}>
-                New Policy
+                Create New Policy
               </h2>
               <button type="button" onClick={() => setShowModal(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '20px', color: '#A3A3A3', lineHeight: 1 }}>
                 ×
               </button>
             </div>
 
-            {/* Modal body */}
-            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            {/* Modal body — scrollable */}
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', flex: 1 }}>
               {/* Title */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#404040', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Policy Title *
-                </label>
+                <label style={labelStyle}>Policy Title *</label>
                 <input
                   type="text"
                   required
@@ -479,9 +575,7 @@ export default function VaultPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 {/* Category */}
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#404040', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Category *
-                  </label>
+                  <label style={labelStyle}>Category *</label>
                   <select
                     value={form.category}
                     onChange={(e) => setForm({ ...form, category: e.target.value })}
@@ -493,9 +587,7 @@ export default function VaultPage() {
 
                 {/* Code */}
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#404040', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Code *
-                  </label>
+                  <label style={labelStyle}>Code *</label>
                   <input
                     type="text"
                     required
@@ -509,9 +601,7 @@ export default function VaultPage() {
 
               {/* Programs */}
               <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#404040', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Programs
-                </label>
+                <label style={labelStyle}>Programs</label>
                 <div style={{ display: 'flex', gap: '16px' }}>
                   {PROGRAMS.map((p) => (
                     <label key={p} style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer', fontSize: '13px', color: '#262626' }}>
@@ -533,11 +623,24 @@ export default function VaultPage() {
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                {/* Owner */}
+                <div>
+                  <label style={labelStyle}>Owner</label>
+                  <select
+                    value={form.owner_id}
+                    onChange={(e) => setForm({ ...form, owner_id: e.target.value })}
+                    style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }}
+                  >
+                    <option value="">Select owner…</option>
+                    {orgMembers.map((m) => (
+                      <option key={m.id} value={m.id}>{m.full_name}</option>
+                    ))}
+                  </select>
+                </div>
+
                 {/* Department */}
                 <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#404040', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Department
-                  </label>
+                  <label style={labelStyle}>Department</label>
                   <input
                     type="text"
                     value={form.department}
@@ -546,27 +649,71 @@ export default function VaultPage() {
                     style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
+              </div>
 
-                {/* Review cadence */}
-                <div>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#404040', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                    Review Cadence
-                  </label>
-                  <select
-                    value={form.review_cadence_months}
-                    onChange={(e) => setForm({ ...form, review_cadence_months: Number(e.target.value) })}
-                    style={{ ...inputStyle, width: '100%', boxSizing: 'border-box' }}
-                  >
-                    <option value={6}>Every 6 months</option>
-                    <option value={12}>Every 12 months</option>
-                    <option value={24}>Every 24 months</option>
-                  </select>
+              {/* Review cadence */}
+              <div>
+                <label style={labelStyle}>Review Cadence</label>
+                <select
+                  value={form.review_cadence_months}
+                  onChange={(e) => setForm({ ...form, review_cadence_months: Number(e.target.value) })}
+                  style={{ ...inputStyle, width: '260px', boxSizing: 'border-box' }}
+                >
+                  <option value={6}>Every 6 months</option>
+                  <option value={12}>Every 12 months</option>
+                  <option value={18}>Every 18 months</option>
+                  <option value={24}>Every 24 months</option>
+                </select>
+              </div>
+
+              {/* Document Upload */}
+              <div>
+                <label style={labelStyle}>Document Upload</label>
+                <div style={{
+                  border: '1px dashed #D4D4D4',
+                  borderRadius: '6px',
+                  padding: '12px 14px',
+                  background: '#FAFAFA',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                }}>
+                  <input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt"
+                    onChange={(e) => setForm({ ...form, document: e.target.files?.[0] ?? null })}
+                    style={{ fontSize: '13px', fontFamily: 'inherit', flex: 1 }}
+                  />
+                  {form.document && (
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, document: null })}
+                      style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '14px', color: '#A3A3A3' }}
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
+                <p style={{ fontSize: '11px', color: '#A3A3A3', marginTop: '4px' }}>
+                  PDF or DOC. Uploaded to secure org storage.
+                </p>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label style={labelStyle}>Description / Summary</label>
+                <textarea
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  placeholder="Brief description of this policy's purpose and scope…"
+                  rows={3}
+                  style={{ ...inputStyle, width: '100%', boxSizing: 'border-box', resize: 'vertical', lineHeight: '1.5' }}
+                />
               </div>
             </div>
 
             {/* Modal footer */}
-            <div style={{ padding: '16px 24px', borderTop: '1px solid #E8E8E8', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <div style={{ padding: '16px 24px', borderTop: '1px solid #E8E8E8', display: 'flex', justifyContent: 'flex-end', gap: '10px', flexShrink: 0 }}>
               <button type="button" onClick={() => setShowModal(false)} style={{ padding: '8px 16px', background: '#F5F5F5', color: '#525252', border: '1px solid #E8E8E8', borderRadius: '6px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                 Cancel
               </button>

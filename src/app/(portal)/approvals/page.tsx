@@ -11,10 +11,13 @@ interface PolicyApproval {
   code: string;
   title: string;
   category: string;
+  program?: string[];
+  versionNumber?: number;
   submittedBy: string;
   submittedAt: string;
   changeSummary: string;
   contentPreview: string;
+  isAiGenerated?: boolean;
   status: 'pending' | 'approved' | 'rejected' | 'changes_requested';
 }
 
@@ -23,9 +26,11 @@ interface SuggestionApproval {
   agent: AgentName;
   entityType: string;
   entityCode: string;
+  entityId?: string;
   title: string;
   description: string;
   suggestedText?: string;
+  suggestedChanges?: Record<string, unknown>;
   confidence: number;
   createdAt: string;
   status: 'pending' | 'accepted' | 'rejected' | 'modified';
@@ -93,6 +98,18 @@ const SEED_SUGGESTIONS: SuggestionApproval[] = [
     suggestedText: 'New Control: AHCCCS-MED-001 — Medication Storage Temperature Log Audit. Frequency: Monthly. Owner Role: Clinical. Required Evidence: (1) Digital temperature log export, (2) Designee signature confirming review.',
     confidence: 0.85,
     createdAt: 'Feb 25, 2026',
+    status: 'pending',
+  },
+  {
+    id: 'sug-4',
+    agent: 'qm_orchestrator',
+    entityType: 'QM Meeting',
+    entityCode: '2026-02',
+    title: 'QM meeting packet ready for February review',
+    description: 'The QM Orchestrator has assembled the February 2026 meeting packet including: checkpoint completion summary (87%), 3 open findings, 2 active CAPAs, and trend analysis. The packet is ready for leadership review ahead of the scheduled meeting date.',
+    suggestedText: undefined,
+    confidence: 0.95,
+    createdAt: 'Feb 26, 2026',
     status: 'pending',
   },
 ];
@@ -169,7 +186,7 @@ export default function ApprovalsPage() {
       const [{ data: polData }, { data: sugData }] = await Promise.all([
         supabase
           .from('policies')
-          .select('id, code, title, category, status, updated_at, owner:profiles!owner_id(full_name), current_version:policy_versions!current_version_id(change_summary, content_html)')
+          .select('id, code, title, category, program, status, updated_at, owner:profiles!owner_id(full_name), current_version:policy_versions!current_version_id(version_number, change_summary, content_html)')
           .eq('org_id', memberData.org_id)
           .eq('status', 'in_review'),
         supabase
@@ -180,15 +197,18 @@ export default function ApprovalsPage() {
       ]);
 
       if (polData && polData.length > 0) {
-        const mapped: PolicyApproval[] = polData.map((p) => ({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mapped: PolicyApproval[] = polData.map((p: any) => ({
           id: p.id,
           code: p.code,
           title: p.title,
           category: p.category,
-          submittedBy: (p.owner as unknown as { full_name: string } | null)?.full_name ?? 'Unknown',
+          program: p.program ?? [],
+          versionNumber: (p.current_version as { version_number?: number } | null)?.version_number,
+          submittedBy: (p.owner as { full_name: string } | null)?.full_name ?? 'Unknown',
           submittedAt: new Date(p.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-          changeSummary: (p.current_version as unknown as { change_summary: string } | null)?.change_summary ?? 'No change summary',
-          contentPreview: (p.current_version as unknown as { content_html: string } | null)?.content_html?.replace(/<[^>]+>/g, ' ').slice(0, 300) ?? '',
+          changeSummary: (p.current_version as { change_summary?: string } | null)?.change_summary ?? 'No change summary',
+          contentPreview: (p.current_version as { content_html?: string } | null)?.content_html?.replace(/<[^>]+>/g, ' ').slice(0, 300) ?? '',
           status: 'pending',
         }));
         setPolicies(mapped);
@@ -200,9 +220,11 @@ export default function ApprovalsPage() {
           agent: s.agent as AgentName,
           entityType: s.entity_type,
           entityCode: s.entity_id ?? 'Unknown',
+          entityId: s.entity_id ?? undefined,
           title: s.title,
           description: s.description,
           suggestedText: (s.suggested_changes as Record<string, string> | null)?.text,
+          suggestedChanges: s.suggested_changes as Record<string, unknown> | undefined,
           confidence: s.confidence ?? 0.8,
           createdAt: new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
           status: 'pending',
@@ -380,9 +402,19 @@ export default function ApprovalsPage() {
                             <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, background: cat.bg, color: cat.color }}>
                               {pol.category}
                             </span>
+                            {pol.program && pol.program.length > 0 && pol.program.map((prog) => (
+                              <span key={prog} style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, background: '#F5F5F5', color: '#525252' }}>
+                                {prog}
+                              </span>
+                            ))}
                             <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, background: 'var(--blue-light, #E8F6FA)', color: 'var(--blue-dark, #2A8BA8)' }}>
-                              Policy Review
+                              {pol.versionNumber && pol.versionNumber > 1 ? `v${pol.versionNumber} Update` : 'Policy Review'}
                             </span>
+                            {pol.isAiGenerated && (
+                              <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, background: '#E8F6FA', color: '#0E7490' }}>
+                                AI Generated
+                              </span>
+                            )}
                           </div>
                           <span style={{ fontSize: '12px', color: 'var(--g400, #A3A3A3)' }}>Submitted {pol.submittedAt}</span>
                         </div>
@@ -400,12 +432,25 @@ export default function ApprovalsPage() {
                         {/* Expanded: View Changes */}
                         {expand === 'view_changes' && (
                           <div style={{ marginTop: '14px', padding: '14px', background: 'var(--g50, #FAFAFA)', border: '1px solid var(--g200, #E8E8E8)', borderRadius: '6px' }}>
-                            <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--g400, #A3A3A3)', margin: '0 0 8px' }}>
-                              Latest Version Content Preview
-                            </p>
-                            <p style={{ fontSize: '13px', color: 'var(--g700, #404040)', lineHeight: '1.65', margin: 0 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                              <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--g400, #A3A3A3)', margin: 0 }}>
+                                Latest Version Content Preview
+                              </p>
+                              <a
+                                href={`/vault/${pol.id}`}
+                                style={{ fontSize: '12px', color: 'var(--blue, #3BA7C9)', textDecoration: 'none', fontWeight: 500 }}
+                              >
+                                View Full Policy →
+                              </a>
+                            </div>
+                            <p style={{ fontSize: '13px', color: 'var(--g700, #404040)', lineHeight: '1.65', margin: '0 0 10px' }}>
                               {pol.contentPreview}
                             </p>
+                            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', fontSize: '12px', color: 'var(--g500, #737373)' }}>
+                              <span>Owner: <strong style={{ color: 'var(--g700, #404040)' }}>{pol.submittedBy}</strong></span>
+                              <span>Submitted: <strong style={{ color: 'var(--g700, #404040)' }}>{pol.submittedAt}</strong></span>
+                              {pol.versionNumber && <span>Version: <strong style={{ color: 'var(--g700, #404040)' }}>v{pol.versionNumber}</strong></span>}
+                            </div>
                           </div>
                         )}
 
@@ -572,6 +617,22 @@ export default function ApprovalsPage() {
                           </p>
                           <ConfidenceBar value={sug.confidence} />
                         </div>
+
+                        {/* Entity link */}
+                        {sug.entityId && sug.entityType && (
+                          <div style={{ marginBottom: '10px' }}>
+                            <a
+                              href={
+                                sug.entityType === 'Policy' ? `/vault/${sug.entityId}` :
+                                sug.entityType === 'capa' ? `/capa/${sug.entityId}` :
+                                '#'
+                              }
+                              style={{ fontSize: '12px', color: 'var(--blue, #3BA7C9)', textDecoration: 'none', fontWeight: 500 }}
+                            >
+                              View affected {sug.entityType.toLowerCase()} →
+                            </a>
+                          </div>
+                        )}
 
                         {/* Suggested text preview */}
                         {sug.suggestedText && (

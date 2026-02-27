@@ -3,12 +3,32 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // Routes that don't require authentication
-const PUBLIC_ROUTES = ['/', '/login', '/signup', '/auth/callback'];
+const PUBLIC_ROUTES = ['/', '/login', '/signup', '/forgot-password', '/reset-password', '/auth/callback'];
+
+// Routes that require admin role
+const ADMIN_ONLY_ROUTES = ['/settings/members', '/settings/roles'];
+
+// Routes that require admin or compliance role
+const COMPLIANCE_WRITE_ROUTES = ['/vault/'];
+
+type OrgRole = 'admin' | 'compliance' | 'clinical' | 'ops' | 'hr' | 'billing' | 'supervisor' | 'executive';
 
 function isPublicRoute(pathname: string): boolean {
   return PUBLIC_ROUTES.some(
     (route) => pathname === route || pathname.startsWith(route + '/')
   );
+}
+
+function requiresAdminRole(pathname: string): boolean {
+  return ADMIN_ONLY_ROUTES.some(
+    (route) => pathname === route || pathname.startsWith(route + '/')
+  );
+}
+
+function requiresComplianceRole(pathname: string): boolean {
+  // /vault/[id]/edit requires admin or compliance
+  if (pathname.match(/^\/vault\/[^/]+\/edit/)) return true;
+  return false;
 }
 
 export async function middleware(request: NextRequest) {
@@ -59,6 +79,47 @@ export async function middleware(request: NextRequest) {
     const dashboardUrl = request.nextUrl.clone();
     dashboardUrl.pathname = '/dashboard';
     return NextResponse.redirect(dashboardUrl);
+  }
+
+  // RBAC checks for authenticated users on protected routes
+  if (user && !isPublicRoute(pathname)) {
+    const needsAdminCheck = requiresAdminRole(pathname);
+    const needsComplianceCheck = requiresComplianceRole(pathname);
+
+    if (needsAdminCheck || needsComplianceCheck) {
+      // Query org membership for current user
+      const { data: member } = await supabase
+        .from('org_members')
+        .select('role, org_id')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .single();
+
+      // No org membership — redirect to signup to complete setup
+      if (!member) {
+        const signupUrl = request.nextUrl.clone();
+        signupUrl.pathname = '/signup';
+        return NextResponse.redirect(signupUrl);
+      }
+
+      const role = member.role as OrgRole;
+
+      // Admin-only route check
+      if (needsAdminCheck && role !== 'admin') {
+        const dashboardUrl = request.nextUrl.clone();
+        dashboardUrl.pathname = '/dashboard';
+        dashboardUrl.searchParams.set('error', 'insufficient_permissions');
+        return NextResponse.redirect(dashboardUrl);
+      }
+
+      // Compliance write route check (admin or compliance role required)
+      if (needsComplianceCheck && role !== 'admin' && role !== 'compliance') {
+        const dashboardUrl = request.nextUrl.clone();
+        dashboardUrl.pathname = '/dashboard';
+        dashboardUrl.searchParams.set('error', 'insufficient_permissions');
+        return NextResponse.redirect(dashboardUrl);
+      }
+    }
   }
 
   return supabaseResponse;

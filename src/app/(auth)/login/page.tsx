@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div style={{ textAlign: 'center', padding: '40px', color: '#737373' }}>Loading...</div>}>
+    <Suspense fallback={<div className="text-center py-10 text-g500">Loading...</div>}>
       <LoginForm />
     </Suspense>
   );
@@ -45,53 +45,20 @@ function LoginForm() {
     router.refresh();
   }
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '10px 12px',
-    border: '1px solid #D4D4D4',
-    borderRadius: '6px',
-    fontSize: '14px',
-    color: '#262626',
-    background: '#ffffff',
-    outline: 'none',
-    boxSizing: 'border-box',
-    fontFamily: 'inherit',
-    transition: 'border-color 0.15s',
-  };
-
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: '13px',
-    fontWeight: '600',
-    color: '#404040',
-    marginBottom: '6px',
-  };
-
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: '32px', textAlign: 'center' }}>
-        <h2 style={{
-          fontFamily: "'Source Serif 4', Georgia, serif",
-          fontSize: '24px', fontWeight: '700',
-          color: '#171717', marginBottom: '8px', letterSpacing: '-0.3px',
-        }}>
+      <div className="mb-8 text-center">
+        <h2 className="font-serif text-2xl font-bold text-g900 mb-2 tracking-tight">
           Welcome back
         </h2>
-        <p style={{ fontSize: '14px', color: '#737373' }}>
+        <p className="text-sm text-g500">
           Sign in to your REPrieve.ai portal
         </p>
       </div>
 
       {/* Tab switcher */}
-      <div style={{
-        display: 'flex',
-        border: '1px solid #E8E8E8',
-        borderRadius: '8px',
-        padding: '4px',
-        marginBottom: '28px',
-        background: '#F5F5F5',
-      }}>
+      <div className="flex border border-g200 rounded-lg p-1 mb-7 bg-g100">
         {(['signin', 'create'] as const).map((tab) => (
           <button
             key={tab}
@@ -103,20 +70,12 @@ function LoginForm() {
                 setActiveTab(tab);
               }
             }}
-            style={{
-              flex: 1,
-              padding: '8px 16px',
-              borderRadius: '6px',
-              border: 'none',
-              fontSize: '13px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-              fontFamily: 'inherit',
-              background: activeTab === tab ? '#ffffff' : 'transparent',
-              color: activeTab === tab ? '#2A8BA8' : '#737373',
-              boxShadow: activeTab === tab ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-            }}
+            className={[
+              'flex-1 py-2 px-4 rounded-md text-[13px] font-semibold cursor-pointer transition-all',
+              activeTab === tab
+                ? 'bg-white text-blue-dark shadow-sm'
+                : 'bg-transparent text-g500',
+            ].join(' ')}
           >
             {tab === 'signin' ? 'Sign In' : 'Create Account'}
           </button>
@@ -126,21 +85,15 @@ function LoginForm() {
       {/* Sign in form */}
       <form onSubmit={handleSignIn}>
         {error && (
-          <div style={{
-            background: '#FEF2F2',
-            border: '1px solid #DC2626',
-            borderRadius: '6px',
-            padding: '10px 14px',
-            fontSize: '13px',
-            color: '#DC2626',
-            marginBottom: '20px',
-          }}>
+          <div className="bg-red-light border border-red rounded-[6px] px-3.5 py-2.5 text-[13px] text-red mb-5">
             {error}
           </div>
         )}
 
-        <div style={{ marginBottom: '16px' }}>
-          <label htmlFor="email" style={labelStyle}>Email address</label>
+        <div className="mb-4">
+          <label htmlFor="email" className="block text-[13px] font-semibold text-g700 mb-1.5">
+            Email address
+          </label>
           <input
             id="email"
             type="email"
@@ -149,12 +102,14 @@ function LoginForm() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@yourorg.com"
-            style={inputStyle}
+            className="w-full px-3 py-2.5 border border-g300 rounded-[6px] text-sm text-g800 bg-white outline-none transition-colors focus:border-blue-dark focus:ring-2 focus:ring-blue-dark/10 placeholder:text-g400"
           />
         </div>
 
-        <div style={{ marginBottom: '8px' }}>
-          <label htmlFor="password" style={labelStyle}>Password</label>
+        <div className="mb-2">
+          <label htmlFor="password" className="block text-[13px] font-semibold text-g700 mb-1.5">
+            Password
+          </label>
           <input
             id="password"
             type="password"
@@ -163,99 +118,60 @@ function LoginForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="••••••••"
-            style={inputStyle}
+            className="w-full px-3 py-2.5 border border-g300 rounded-[6px] text-sm text-g800 bg-white outline-none transition-colors focus:border-blue-dark focus:ring-2 focus:ring-blue-dark/10 placeholder:text-g400"
           />
         </div>
 
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: '24px',
-        }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+        <div className="flex items-center justify-between mb-6">
+          <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
-              style={{ width: '14px', height: '14px', accentColor: '#2A8BA8', cursor: 'pointer' }}
+              className="w-3.5 h-3.5 accent-blue-dark cursor-pointer"
             />
-            <span style={{ fontSize: '13px', color: '#525252' }}>Remember me</span>
+            <span className="text-[13px] text-g600">Remember me</span>
           </label>
-          <a
-            href="#"
-            style={{
-              fontSize: '13px',
-              color: '#2A8BA8',
-              textDecoration: 'none',
-              fontWeight: '500',
-            }}
+          <Link
+            href="/forgot-password"
+            className="text-[13px] text-blue-dark font-medium hover:text-blue transition-colors no-underline"
           >
             Forgot password?
-          </a>
+          </Link>
         </div>
 
         <button
           type="submit"
           disabled={loading}
-          style={{
-            width: '100%',
-            padding: '11px 16px',
-            background: loading ? '#A3A3A3' : '#2A8BA8',
-            color: '#ffffff',
-            border: 'none',
-            borderRadius: '6px',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            fontFamily: 'inherit',
-            transition: 'background 0.15s',
-            letterSpacing: '0.1px',
-          }}
+          className="w-full py-[11px] px-4 bg-blue-dark text-white border-0 rounded-[6px] text-sm font-semibold cursor-pointer transition-colors tracking-[0.1px] hover:bg-blue disabled:bg-g400 disabled:cursor-not-allowed"
         >
           {loading ? 'Signing in…' : 'Sign In'}
         </button>
       </form>
 
       {/* Divider */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        margin: '24px 0',
-      }}>
-        <div style={{ flex: 1, height: '1px', background: '#E8E8E8' }} />
-        <span style={{ fontSize: '12px', color: '#A3A3A3', fontWeight: '500' }}>or</span>
-        <div style={{ flex: 1, height: '1px', background: '#E8E8E8' }} />
+      <div className="flex items-center gap-3 my-6">
+        <div className="flex-1 h-px bg-g200" />
+        <span className="text-[12px] text-g400 font-medium">or</span>
+        <div className="flex-1 h-px bg-g200" />
       </div>
 
       {/* Sign up link */}
-      <p style={{ textAlign: 'center', fontSize: '13px', color: '#737373' }}>
+      <p className="text-center text-[13px] text-g500">
         Don&apos;t have an account?{' '}
-        <Link
-          href="/signup"
-          style={{ color: '#2A8BA8', fontWeight: '600', textDecoration: 'none' }}
-        >
+        <Link href="/signup" className="text-blue-dark font-semibold no-underline hover:text-blue transition-colors">
           Create one now
         </Link>
       </p>
 
       {/* Footer help */}
-      <div style={{
-        marginTop: '40px',
-        paddingTop: '20px',
-        borderTop: '1px solid #E8E8E8',
-        textAlign: 'center',
-        fontSize: '12px',
-        color: '#A3A3A3',
-        lineHeight: '1.6',
-      }}>
+      <div className="mt-10 pt-5 border-t border-g200 text-center text-[12px] text-g400 leading-relaxed">
         Need help? Contact{' '}
-        <a href="mailto:support@reprieve.ai" style={{ color: '#2A8BA8', textDecoration: 'none' }}>
+        <a href="mailto:support@reprieve.ai" className="text-blue-dark no-underline hover:text-blue transition-colors">
           support@reprieve.ai
         </a>
         {' '}or call{' '}
-        <a href="tel:+16025550100" style={{ color: '#2A8BA8', textDecoration: 'none' }}>
+        <a href="tel:+16025550100" className="text-blue-dark no-underline hover:text-blue transition-colors">
           (602) 555-0100
         </a>
       </div>

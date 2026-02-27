@@ -1,16 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
-const SEED_ITEMS = [
-  { id: '1', category: 'Completions', description: 'Review checkpoint completion rates (18/24 = 75%)', checked: true },
-  { id: '2', category: 'Overdue',     description: 'Review overdue items (Fire Drill, Medication CAPA)', checked: true },
-  { id: '3', category: 'Findings',    description: 'Review new findings from this period', checked: true },
-  { id: '4', category: 'CAPAs',       description: 'Review open CAPAs and status updates', checked: true },
-  { id: '5', category: 'Policies',    description: 'Review policy changes pending approval (2 pending)', checked: false },
-  { id: '6', category: 'AI',          description: 'Review AI suggestions pending review (5 pending)', checked: false },
-  { id: '7', category: 'Scoring',     description: 'Review audit readiness score trend', checked: false },
-  { id: '8', category: 'Actions',     description: 'Assign action items for next period', checked: false },
+interface ChecklistItem {
+  id: string;
+  category: string;
+  description: string;
+  checked: boolean;
+}
+
+const DEFAULT_ITEMS: ChecklistItem[] = [
+  { id: '1', category: 'Actions',     description: 'Review previous month\'s action items', checked: false },
+  { id: '2', category: 'Completions', description: 'Present compliance checkpoint summary', checked: false },
+  { id: '3', category: 'Scoring',     description: 'Review audit readiness score and trends', checked: false },
+  { id: '4', category: 'Findings',    description: 'Discuss open findings and root causes', checked: false },
+  { id: '5', category: 'CAPAs',       description: 'Review CAPA status and deadlines', checked: false },
+  { id: '6', category: 'Risks',       description: 'Identify new risks or compliance gaps', checked: false },
+  { id: '7', category: 'Planning',    description: 'Set action items for next period', checked: false },
+  { id: '8', category: 'Schedule',    description: 'Schedule next QM meeting date', checked: false },
 ];
 
 const CAT_COLORS: Record<string, { bg: string; color: string }> = {
@@ -22,25 +30,56 @@ const CAT_COLORS: Record<string, { bg: string; color: string }> = {
   AI:          { bg: '#E8F6FA', color: '#0E7490' },
   Scoring:     { bg: '#EFF6FF', color: '#1D4ED8' },
   Actions:     { bg: '#F5F5F5', color: '#525252' },
+  Risks:       { bg: '#FEF2F2', color: '#DC2626' },
+  Planning:    { bg: '#FFFBEB', color: '#B45309' },
+  Schedule:    { bg: '#F5F3FF', color: '#6D28D9' },
 };
 
 interface MeetingChecklistProps {
   onMarkComplete?: () => void;
+  meetingId?: string;
+  orgId?: string;
+  agenda?: Record<string, unknown> | null;
 }
 
-export function MeetingChecklist({ onMarkComplete }: MeetingChecklistProps) {
-  const [items, setItems] = useState(SEED_ITEMS);
+export function MeetingChecklist({ onMarkComplete, meetingId, agenda }: MeetingChecklistProps) {
+  const savedItems = agenda && Array.isArray(agenda) ? (agenda as unknown as ChecklistItem[]) : null;
+  const [items, setItems] = useState<ChecklistItem[]>(
+    savedItems && savedItems.length > 0 ? savedItems : DEFAULT_ITEMS
+  );
   const [completed, setCompleted] = useState(false);
+
+  useEffect(() => {
+    if (agenda && Array.isArray(agenda)) {
+      const loaded = agenda as unknown as ChecklistItem[];
+      if (loaded.length > 0) setItems(loaded);
+    }
+  }, [agenda]);
 
   const checkedCount = items.filter((i) => i.checked).length;
 
-  function toggle(id: string) {
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, checked: !item.checked } : item))
+  async function toggle(id: string) {
+    const newItems = items.map((item) =>
+      item.id === id ? { ...item, checked: !item.checked } : item
     );
+    setItems(newItems);
+    if (meetingId) {
+      const supabase = createClient();
+      await supabase
+        .from('qm_meetings')
+        .update({ agenda: newItems as unknown as Record<string, unknown> })
+        .eq('id', meetingId);
+    }
   }
 
-  function handleMarkComplete() {
+  async function handleMarkComplete() {
+    if (meetingId) {
+      const supabase = createClient();
+      await supabase
+        .from('qm_meetings')
+        .update({ status: 'completed' })
+        .eq('id', meetingId);
+    }
     setCompleted(true);
     onMarkComplete?.();
   }
@@ -85,7 +124,6 @@ export function MeetingChecklist({ onMarkComplete }: MeetingChecklistProps) {
               transition: 'background 0.1s',
             }}
           >
-            {/* Checkbox */}
             <div style={{
               width: '20px',
               height: '20px',
@@ -104,8 +142,6 @@ export function MeetingChecklist({ onMarkComplete }: MeetingChecklistProps) {
                 </svg>
               )}
             </div>
-
-            {/* Description */}
             <p style={{
               flex: 1,
               fontSize: '14px',
@@ -116,8 +152,6 @@ export function MeetingChecklist({ onMarkComplete }: MeetingChecklistProps) {
             }}>
               {item.description}
             </p>
-
-            {/* Category badge */}
             <span style={{
               padding: '2px 8px',
               borderRadius: '10px',

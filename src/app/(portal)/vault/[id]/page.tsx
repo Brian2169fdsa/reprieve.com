@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { getPolicyDocumentUrl, uploadPolicyDocument } from '@/lib/supabase/storage';
 import type { Policy, PolicyVersion, PolicyStatus } from '@/lib/types';
 import VersionHistory from '@/components/vault/version-history';
 import ApprovalWorkflow from '@/components/vault/approval-workflow';
@@ -65,6 +66,10 @@ export default function PolicyDetailPage() {
   const [savingStatus, setSavingStatus] = useState(false);
   const [orgId, setOrgId]             = useState<string | null>(null);
   const [userId, setUserId]           = useState<string | null>(null);
+  const [isAiGenerated, setIsAiGenerated] = useState(false);
+  const [aiSuggestionTitle, setAiSuggestionTitle] = useState<string | undefined>(undefined);
+  const [documentPath, setDocumentPath] = useState<string | null>(null);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
 
   const loadData = useCallback(async () => {
     const supabase = createClient();
@@ -95,6 +100,12 @@ export default function PolicyDetailPage() {
     }
     setPolicy(pol as Policy);
 
+    // Check for document path in settings
+    const settings = (pol as Record<string, unknown>).settings as Record<string, unknown> | null;
+    if (settings?.document_path) {
+      setDocumentPath(settings.document_path as string);
+    }
+
     // Fetch versions
     const { data: vers } = await supabase
       .from('policy_versions')
@@ -120,6 +131,19 @@ export default function PolicyDetailPage() {
     ];
     setRelated(combined);
 
+    // Check if AI-generated
+    const { data: aiSugg } = await supabase
+      .from('ai_suggestions')
+      .select('id, title')
+      .eq('entity_type', 'policy')
+      .eq('entity_id', id)
+      .maybeSingle();
+
+    if (aiSugg) {
+      setIsAiGenerated(true);
+      setAiSuggestionTitle(aiSugg.title);
+    }
+
     setLoading(false);
   }, [id, router]);
 
@@ -128,26 +152,78 @@ export default function PolicyDetailPage() {
   }, [loadData]);
 
   async function handleStatusChange(newStatus: PolicyStatus) {
-    if (!policy) return;
+    if (!policy || !userId || !orgId) return;
     setSavingStatus(true);
     const supabase = createClient();
     const updates: Record<string, unknown> = { status: newStatus };
 
     if (newStatus === 'approved') {
-      updates.approved_by = userId;
+      // Update policy_version with approved_by and approved_at
+      const currentVer = versions.find(v => v.id === policy.current_version_id);
+      if (currentVer) {
+        await supabase
+          .from('policy_versions')
+          .update({
+            approved_by: userId,
+            approved_at: new Date().toISOString(),
+          })
+          .eq('id', currentVer.id);
+      }
     }
+
     if (newStatus === 'effective') {
-      updates.effective_date = new Date().toISOString().split('T')[0];
+      // Set effective date on version
+      const currentVer = versions.find(v => v.id === policy.current_version_id);
+      if (currentVer) {
+        await supabase
+          .from('policy_versions')
+          .update({ effective_date: new Date().toISOString().split('T')[0] })
+          .eq('id', currentVer.id);
+      }
+    }
+
+    if (newStatus === 'draft' && policy.status === 'in_review') {
+      // Rejection — notify policy owner
+      if (policy.owner_id) {
+        await supabase.from('notifications').insert({
+          org_id: orgId,
+          user_id: policy.owner_id,
+          type: 'approval_needed',
+          title: 'Policy returned to draft',
+          message: `"${policy.title}" was returned to draft status and needs revision.`,
+          entity_type: 'policy',
+          entity_id: policy.id,
+        });
+      }
     }
 
     const { data: updated, error: uErr } = await supabase
       .from('policies')
       .update(updates)
       .eq('id', id)
-      .select('*')
+      .select('*, owner:profiles!owner_id(id, full_name, email)')
       .single();
 
-    if (!uErr && updated) setPolicy(updated as Policy);
+    // Write audit log
+    await supabase.from('audit_log').insert({
+      org_id: orgId,
+      user_id: userId,
+      action: `policy.${newStatus}`,
+      entity_type: 'policy',
+      entity_id: id,
+      metadata: { from_status: policy.status, to_status: newStatus, title: policy.title },
+    });
+
+    if (!uErr && updated) {
+      setPolicy(updated as Policy);
+      // Reload versions to reflect approved_by changes
+      const { data: vers } = await supabase
+        .from('policy_versions')
+        .select('*')
+        .eq('policy_id', id)
+        .order('version_number', { ascending: false });
+      setVersions((vers ?? []) as PolicyVersion[]);
+    }
     setSavingStatus(false);
   }
 
@@ -183,6 +259,30 @@ export default function PolicyDetailPage() {
     setRefResults((data ?? []) as Policy[]);
   }
 
+  async function handleViewDocument() {
+    if (!orgId || !documentPath) return;
+    const url = await getPolicyDocumentUrl(orgId, documentPath);
+    if (url) window.open(url, '_blank');
+  }
+
+  async function handleUploadNewDocument(file: File) {
+    if (!orgId || !policy) return;
+    setUploadingDoc(true);
+    const result = await uploadPolicyDocument(orgId, policy.id, file);
+    if (result.error) {
+      setError('Document upload failed: ' + result.error.message);
+    } else {
+      // Update policy settings with new document path
+      const supabase = createClient();
+      const currentSettings = ((policy as unknown as Record<string, unknown>).settings as Record<string, unknown>) ?? {};
+      await supabase.from('policies').update({
+        settings: { ...currentSettings, document_path: result.path },
+      }).eq('id', policy.id);
+      setDocumentPath(result.path);
+    }
+    setUploadingDoc(false);
+  }
+
   // Current displayed version content
   const displayVersion = selectedVersion
     ? selectedVersion
@@ -211,7 +311,9 @@ export default function PolicyDetailPage() {
 
   const ss  = STATUS_STYLES[policy.status] ?? STATUS_STYLES.draft;
   const cc  = CAT_COLORS[policy.category] ?? { bg: '#F5F5F5', color: '#525252' };
-  const ownerName = (policy as Policy & { owner?: { full_name?: string } }).owner?.full_name;
+  const ownerName = policy.owner?.full_name;
+  const policySettings = ((policy as unknown as Record<string, unknown>).settings as Record<string, unknown>) ?? {};
+  const description = policySettings.description as string | null;
 
   return (
     <div style={{ padding: '32px', maxWidth: '1200px' }}>
@@ -222,6 +324,41 @@ export default function PolicyDetailPage() {
           ← Knowledge Vault
         </Link>
       </div>
+
+      {/* AI Generated banner */}
+      {isAiGenerated && (
+        <div
+          style={{
+            padding: '12px 18px',
+            background: '#F0F9FC',
+            border: '1px solid #B2E0ED',
+            borderRadius: '8px',
+            fontSize: '13px',
+            color: '#0E7490',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+          }}
+        >
+          <span style={{
+            padding: '2px 8px',
+            borderRadius: '10px',
+            fontSize: '11px',
+            fontWeight: 700,
+            background: '#E8F6FA',
+            color: '#2A8BA8',
+            border: '1px solid #B2E0ED',
+            flexShrink: 0,
+          }}>
+            AI Generated
+          </span>
+          <span>
+            This policy was created by the AI Policy Guardian and requires human review before activation.
+            {aiSuggestionTitle && <span style={{ color: '#737373' }}> — {aiSuggestionTitle}</span>}
+          </span>
+        </div>
+      )}
 
       {/* Policy header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '28px' }}>
@@ -237,10 +374,28 @@ export default function PolicyDetailPage() {
                 {p}
               </span>
             ))}
+            {isAiGenerated && (
+              <span style={{
+                padding: '2px 8px',
+                borderRadius: '10px',
+                fontSize: '11px',
+                fontWeight: 700,
+                background: '#E8F6FA',
+                color: '#2A8BA8',
+                border: '1px solid #B2E0ED',
+              }}>
+                AI
+              </span>
+            )}
           </div>
           <h1 style={{ fontFamily: 'var(--font-source-serif-4, serif)', fontSize: '26px', fontWeight: 700, color: '#171717', marginBottom: '0', letterSpacing: '-0.3px' }}>
             {policy.title}
           </h1>
+          {description && (
+            <p style={{ fontSize: '14px', color: '#737373', marginTop: '6px' }}>
+              {description}
+            </p>
+          )}
         </div>
 
         <Link
@@ -289,6 +444,90 @@ export default function PolicyDetailPage() {
             ))}
           </div>
 
+          {/* Document Viewer */}
+          {(documentPath || true) && (
+            <div style={{ background: '#fff', border: '1px solid #E8E8E8', borderRadius: '8px', padding: '18px 20px', marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '13px', fontWeight: 700, color: '#404040', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '14px' }}>
+                Policy Document
+              </h3>
+              {documentPath ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                    <span style={{ padding: '2px 6px', borderRadius: '4px', fontSize: '10px', fontWeight: 700, background: '#FEF2F2', color: '#DC2626' }}>
+                      PDF
+                    </span>
+                    <span style={{ fontSize: '13px', color: '#262626', fontWeight: 500 }}>
+                      {documentPath.split('/').pop() ?? 'Document'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleViewDocument}
+                    style={{
+                      padding: '6px 14px',
+                      background: '#E8F6FA',
+                      color: '#2A8BA8',
+                      border: '1px solid #B2E0ED',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    View Document
+                  </button>
+                  <label style={{
+                    padding: '6px 14px',
+                    background: '#F5F5F5',
+                    color: '#525252',
+                    border: '1px solid #E8E8E8',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: uploadingDoc ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit',
+                  }}>
+                    {uploadingDoc ? 'Uploading…' : 'Re-upload'}
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadNewDocument(f); }}
+                      style={{ display: 'none' }}
+                      disabled={uploadingDoc}
+                    />
+                  </label>
+                </div>
+              ) : (
+                <div>
+                  <p style={{ fontSize: '13px', color: '#A3A3A3', marginBottom: '10px' }}>
+                    No document uploaded yet.
+                  </p>
+                  <label style={{
+                    padding: '7px 14px',
+                    background: '#F5F5F5',
+                    color: '#525252',
+                    border: '1px solid #E8E8E8',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: uploadingDoc ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit',
+                    display: 'inline-block',
+                  }}>
+                    {uploadingDoc ? 'Uploading…' : '📎 Upload Document'}
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadNewDocument(f); }}
+                      style={{ display: 'none' }}
+                      disabled={uploadingDoc}
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Approval Workflow */}
           <div style={{ background: '#fff', border: '1px solid #E8E8E8', borderRadius: '8px', padding: '18px 20px', marginBottom: '24px' }}>
             <h3 style={{ fontSize: '13px', fontWeight: 700, color: '#404040', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '16px' }}>
@@ -298,6 +537,8 @@ export default function PolicyDetailPage() {
               currentStatus={policy.status as PolicyStatus}
               onStatusChange={handleStatusChange}
               disabled={savingStatus}
+              isAiGenerated={isAiGenerated}
+              aiSuggestionTitle={aiSuggestionTitle}
             />
           </div>
 

@@ -15,6 +15,26 @@ function slugify(name: string): string {
     .replace(/^-|-$/g, '');
 }
 
+type PasswordStrength = 'weak' | 'medium' | 'strong';
+
+function getPasswordStrength(password: string): PasswordStrength {
+  if (password.length < 8) return 'weak';
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecial = /[^A-Za-z0-9]/.test(password);
+  const score = [hasUpper, hasLower, hasNumber, hasSpecial].filter(Boolean).length;
+  if (password.length >= 12 && score >= 3) return 'strong';
+  if (password.length >= 8 && score >= 2) return 'medium';
+  return 'weak';
+}
+
+const strengthConfig: Record<PasswordStrength, { label: string; color: string; width: string }> = {
+  weak: { label: 'Weak', color: 'bg-red', width: 'w-1/3' },
+  medium: { label: 'Medium', color: 'bg-yellow', width: 'w-2/3' },
+  strong: { label: 'Strong', color: 'bg-green', width: 'w-full' },
+};
+
 export default function SignupPage() {
   const router = useRouter();
   const [fullName, setFullName] = useState('');
@@ -23,6 +43,9 @@ export default function SignupPage() {
   const [orgName, setOrgName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const passwordStrength = password.length > 0 ? getPasswordStrength(password) : null;
+  const strengthCfg = passwordStrength ? strengthConfig[passwordStrength] : null;
 
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault();
@@ -82,53 +105,20 @@ export default function SignupPage() {
     router.refresh();
   }
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '10px 12px',
-    border: '1px solid #D4D4D4',
-    borderRadius: '6px',
-    fontSize: '14px',
-    color: '#262626',
-    background: '#ffffff',
-    outline: 'none',
-    boxSizing: 'border-box',
-    fontFamily: 'inherit',
-    transition: 'border-color 0.15s',
-  };
-
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: '13px',
-    fontWeight: '600',
-    color: '#404040',
-    marginBottom: '6px',
-  };
-
   return (
     <div>
       {/* Header */}
-      <div style={{ marginBottom: '32px', textAlign: 'center' }}>
-        <h2 style={{
-          fontFamily: "'Source Serif 4', Georgia, serif",
-          fontSize: '24px', fontWeight: '700',
-          color: '#171717', marginBottom: '8px', letterSpacing: '-0.3px',
-        }}>
+      <div className="mb-8 text-center">
+        <h2 className="font-serif text-2xl font-bold text-g900 mb-2 tracking-tight">
           Create your account
         </h2>
-        <p style={{ fontSize: '14px', color: '#737373' }}>
+        <p className="text-sm text-g500">
           Set up your REPrieve.ai compliance portal
         </p>
       </div>
 
       {/* Tab switcher */}
-      <div style={{
-        display: 'flex',
-        border: '1px solid #E8E8E8',
-        borderRadius: '8px',
-        padding: '4px',
-        marginBottom: '28px',
-        background: '#F5F5F5',
-      }}>
+      <div className="flex border border-g200 rounded-lg p-1 mb-7 bg-g100">
         {(['signin', 'create'] as const).map((tab) => (
           <button
             key={tab}
@@ -136,20 +126,12 @@ export default function SignupPage() {
             onClick={() => {
               if (tab === 'signin') router.push('/login');
             }}
-            style={{
-              flex: 1,
-              padding: '8px 16px',
-              borderRadius: '6px',
-              border: 'none',
-              fontSize: '13px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-              fontFamily: 'inherit',
-              background: tab === 'create' ? '#ffffff' : 'transparent',
-              color: tab === 'create' ? '#2A8BA8' : '#737373',
-              boxShadow: tab === 'create' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-            }}
+            className={[
+              'flex-1 py-2 px-4 rounded-md text-[13px] font-semibold cursor-pointer transition-all',
+              tab === 'create'
+                ? 'bg-white text-blue-dark shadow-sm'
+                : 'bg-transparent text-g500',
+            ].join(' ')}
           >
             {tab === 'signin' ? 'Sign In' : 'Create Account'}
           </button>
@@ -159,21 +141,15 @@ export default function SignupPage() {
       {/* Signup form */}
       <form onSubmit={handleSignup}>
         {error && (
-          <div style={{
-            background: '#FEF2F2',
-            border: '1px solid #DC2626',
-            borderRadius: '6px',
-            padding: '10px 14px',
-            fontSize: '13px',
-            color: '#DC2626',
-            marginBottom: '20px',
-          }}>
+          <div className="bg-red-light border border-red rounded-[6px] px-3.5 py-2.5 text-[13px] text-red mb-5">
             {error}
           </div>
         )}
 
-        <div style={{ marginBottom: '16px' }}>
-          <label htmlFor="fullName" style={labelStyle}>Full name</label>
+        <div className="mb-4">
+          <label htmlFor="fullName" className="block text-[13px] font-semibold text-g700 mb-1.5">
+            Full name
+          </label>
           <input
             id="fullName"
             type="text"
@@ -182,12 +158,14 @@ export default function SignupPage() {
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
             placeholder="Jane Smith"
-            style={inputStyle}
+            className="w-full px-3 py-2.5 border border-g300 rounded-[6px] text-sm text-g800 bg-white outline-none transition-colors focus:border-blue-dark focus:ring-2 focus:ring-blue-dark/10 placeholder:text-g400"
           />
         </div>
 
-        <div style={{ marginBottom: '16px' }}>
-          <label htmlFor="email" style={labelStyle}>Email address</label>
+        <div className="mb-4">
+          <label htmlFor="email" className="block text-[13px] font-semibold text-g700 mb-1.5">
+            Email address
+          </label>
           <input
             id="email"
             type="email"
@@ -196,12 +174,14 @@ export default function SignupPage() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="jane@yourorg.com"
-            style={inputStyle}
+            className="w-full px-3 py-2.5 border border-g300 rounded-[6px] text-sm text-g800 bg-white outline-none transition-colors focus:border-blue-dark focus:ring-2 focus:ring-blue-dark/10 placeholder:text-g400"
           />
         </div>
 
-        <div style={{ marginBottom: '16px' }}>
-          <label htmlFor="password" style={labelStyle}>Password</label>
+        <div className="mb-4">
+          <label htmlFor="password" className="block text-[13px] font-semibold text-g700 mb-1.5">
+            Password
+          </label>
           <input
             id="password"
             type="password"
@@ -211,12 +191,34 @@ export default function SignupPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Min. 8 characters"
-            style={inputStyle}
+            className="w-full px-3 py-2.5 border border-g300 rounded-[6px] text-sm text-g800 bg-white outline-none transition-colors focus:border-blue-dark focus:ring-2 focus:ring-blue-dark/10 placeholder:text-g400"
           />
+          {/* Password strength indicator */}
+          {passwordStrength && strengthCfg && (
+            <div className="mt-2">
+              <div className="h-1 bg-g200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${strengthCfg.color} ${strengthCfg.width}`}
+                />
+              </div>
+              <p className="text-[12px] text-g500 mt-1">
+                Password strength:{' '}
+                <span className={
+                  passwordStrength === 'strong' ? 'text-green font-semibold' :
+                  passwordStrength === 'medium' ? 'text-yellow font-semibold' :
+                  'text-red font-semibold'
+                }>
+                  {strengthCfg.label}
+                </span>
+              </p>
+            </div>
+          )}
         </div>
 
-        <div style={{ marginBottom: '24px' }}>
-          <label htmlFor="orgName" style={labelStyle}>Organization name</label>
+        <div className="mb-6">
+          <label htmlFor="orgName" className="block text-[13px] font-semibold text-g700 mb-1.5">
+            Organization name
+          </label>
           <input
             id="orgName"
             type="text"
@@ -225,9 +227,9 @@ export default function SignupPage() {
             value={orgName}
             onChange={(e) => setOrgName(e.target.value)}
             placeholder="Cholla Behavioral Health"
-            style={inputStyle}
+            className="w-full px-3 py-2.5 border border-g300 rounded-[6px] text-sm text-g800 bg-white outline-none transition-colors focus:border-blue-dark focus:ring-2 focus:ring-blue-dark/10 placeholder:text-g400"
           />
-          <p style={{ fontSize: '12px', color: '#A3A3A3', marginTop: '4px' }}>
+          <p className="text-[12px] text-g400 mt-1">
             You&apos;ll be set as the admin and can invite team members later.
           </p>
         </div>
@@ -235,52 +237,28 @@ export default function SignupPage() {
         <button
           type="submit"
           disabled={loading}
-          style={{
-            width: '100%',
-            padding: '11px 16px',
-            background: loading ? '#A3A3A3' : '#2A8BA8',
-            color: '#ffffff',
-            border: 'none',
-            borderRadius: '6px',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            fontFamily: 'inherit',
-            transition: 'background 0.15s',
-            letterSpacing: '0.1px',
-          }}
+          className="w-full py-[11px] px-4 bg-blue-dark text-white border-0 rounded-[6px] text-sm font-semibold cursor-pointer transition-colors tracking-[0.1px] hover:bg-blue disabled:bg-g400 disabled:cursor-not-allowed"
         >
           {loading ? 'Creating account…' : 'Create Account'}
         </button>
       </form>
 
       {/* Sign in link */}
-      <p style={{ textAlign: 'center', fontSize: '13px', color: '#737373', marginTop: '24px' }}>
+      <p className="text-center text-[13px] text-g500 mt-6">
         Already have an account?{' '}
-        <Link
-          href="/login"
-          style={{ color: '#2A8BA8', fontWeight: '600', textDecoration: 'none' }}
-        >
+        <Link href="/login" className="text-blue-dark font-semibold no-underline hover:text-blue transition-colors">
           Sign in
         </Link>
       </p>
 
       {/* Footer help */}
-      <div style={{
-        marginTop: '40px',
-        paddingTop: '20px',
-        borderTop: '1px solid #E8E8E8',
-        textAlign: 'center',
-        fontSize: '12px',
-        color: '#A3A3A3',
-        lineHeight: '1.6',
-      }}>
+      <div className="mt-10 pt-5 border-t border-g200 text-center text-[12px] text-g400 leading-relaxed">
         Need help? Contact{' '}
-        <a href="mailto:support@reprieve.ai" style={{ color: '#2A8BA8', textDecoration: 'none' }}>
+        <a href="mailto:support@reprieve.ai" className="text-blue-dark no-underline hover:text-blue transition-colors">
           support@reprieve.ai
         </a>
         {' '}or call{' '}
-        <a href="tel:+16025550100" style={{ color: '#2A8BA8', textDecoration: 'none' }}>
+        <a href="tel:+16025550100" className="text-blue-dark no-underline hover:text-blue transition-colors">
           (602) 555-0100
         </a>
       </div>
