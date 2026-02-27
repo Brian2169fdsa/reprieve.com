@@ -1,37 +1,19 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { ChevronLeft, ChevronRight, LayoutGrid, List, Plus, X, Loader2, Calendar } from "lucide-react"
+import { ChevronLeft, ChevronRight, LayoutGrid, List, Plus, X, Loader2 } from "lucide-react"
 import CalendarEvent from "./calendar-event"
-import CheckpointModal from "@/components/checkpoints/checkpoint-modal"
+import CheckpointPopover, { type CalendarDayEvent } from "./checkpoint-popover"
 import { createClient } from "@/lib/supabase/client"
 import { useOrg } from "@/hooks/use-org"
 import { generateCheckpoints } from "@/app/(portal)/controls/generate-checkpoints"
 
-// ── Types ───────────────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────────────
 type CheckpointStatus =
-  | "info"
-  | "passed"
-  | "failed"
-  | "overdue"
-  | "pending"
-  | "in_progress"
-  | "skipped"
+  | "info" | "passed" | "failed" | "overdue"
+  | "pending" | "in_progress" | "skipped"
 
-interface CalendarCheckpoint {
-  id: string
-  day: number
-  label: string
-  status: CheckpointStatus
-  standard: string
-  control: string
-  assignedTo: string
-  dueDate: string
-  isAI: boolean
-  isMock?: boolean
-}
-
-// ── Config ──────────────────────────────────────────────────────
+// ── Config ──────────────────────────────────────────────────────────────
 const STATUS_CFG: Record<CheckpointStatus, { label: string; dot: string; bg: string; text: string }> = {
   info:        { label: "Info",        dot: "#3BA7C9", bg: "#E8F6FA", text: "#2A8BA8" },
   passed:      { label: "Passed",      dot: "#16A34A", bg: "#DCFCE7", text: "#15803D" },
@@ -48,7 +30,7 @@ const MONTH_NAMES = [
 ]
 const DAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
-// ── Helpers ─────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────
 function firstWeekday(y: number, m: number) { return new Date(y, m, 1).getDay() }
 function daysInMonth(y: number, m: number)  { return new Date(y, m + 1, 0).getDate() }
 function monthLabel(y: number, m: number)   { return `${MONTH_NAMES[m]} ${y}` }
@@ -62,8 +44,8 @@ function periodString(year: number, month0: number): string {
   return `${year}-${String(month0 + 1).padStart(2, "0")}`
 }
 
-// ── Mock Data Generator ─────────────────────────────────────────
-function generateMockData(year: number, month: number): CalendarCheckpoint[] {
+// ── Mock data (used when no DB checkpoints exist) ────────────────────────
+function generateMockData(year: number, month: number): CalendarDayEvent[] {
   const mockDefs: { day: number; label: string; standard: string; status: CheckpointStatus; assignedTo: string }[] = [
     { day: 1,  label: "Monthly Checkpoints Generated",  standard: "Internal",   status: "info",        assignedTo: "System" },
     { day: 2,  label: "OIG Exclusion Screening",        standard: "OIG",        status: "passed",      assignedTo: "Sarah Chen" },
@@ -98,7 +80,7 @@ function generateMockData(year: number, month: number): CalendarCheckpoint[] {
   const dim = daysInMonth(year, month)
   return mockDefs
     .filter(d => d.day <= dim)
-    .map((d) => ({
+    .map(d => ({
       id: `mock-${year}-${month}-${d.day}`,
       day: d.day,
       label: d.label,
@@ -112,7 +94,7 @@ function generateMockData(year: number, month: number): CalendarCheckpoint[] {
     }))
 }
 
-// ── Component ───────────────────────────────────────────────────
+// ── Component ────────────────────────────────────────────────────────────
 export default function CheckpointCalendar() {
   const todayDate   = new Date()
   const TODAY_DAY   = todayDate.getDate()
@@ -122,32 +104,38 @@ export default function CheckpointCalendar() {
   const [viewYear, setViewYear]   = useState(TODAY_YEAR)
   const [viewMonth, setViewMonth] = useState(TODAY_MONTH)
   const [view, setView]           = useState<"calendar" | "list">("calendar")
-
-  const [checkpoints, setCheckpoints] = useState<CalendarCheckpoint[]>([])
+  const [checkpoints, setCheckpoints] = useState<CalendarDayEvent[]>([])
   const [loading, setLoading]         = useState(false)
   const [usingMocks, setUsingMocks]   = useState(false)
+  const [userId, setUserId]           = useState<string | null>(null)
 
-  // Generate checkpoints modal
+  // Generate checkpoints confirm
   const [showConfirm, setShowConfirm]     = useState(false)
   const [generating, setGenerating]       = useState(false)
   const [generateMsg, setGenerateMsg]     = useState<string | null>(null)
   const [generateError, setGenerateError] = useState<string | null>(null)
 
-  // Add checkpoint modal
-  const [showAddModal, setShowAddModal] = useState(false)
-  const [addDay, setAddDay]             = useState<number | null>(null)
+  // Popover state — which day is selected (null = closed)
+  const [popoverDay, setPopoverDay] = useState<number | null>(null)
 
-  // Checkpoint detail modal
-  const [selectedCheckpointId, setSelectedCheckpointId] = useState<string | null>(null)
-
-  // Sorting
+  // Sorting for list view
   const [sortCol, setSortCol] = useState<"day" | "label" | "standard" | "assignedTo" | "status">("day")
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
 
   const { org } = useOrg()
   const isCurrentMonth = viewYear === TODAY_YEAR && viewMonth === TODAY_MONTH
 
-  // ── Fetch checkpoints ─────────────────────────────────────
+  // ── Get current user ─────────────────────────────────────────────────
+  useEffect(() => {
+    async function getUser() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) setUserId(user.id)
+    }
+    getUser()
+  }, [])
+
+  // ── Fetch checkpoints ────────────────────────────────────────────────
   const fetchCheckpoints = useCallback(async (orgId: string, year: number, month: number) => {
     setLoading(true)
     try {
@@ -158,11 +146,7 @@ export default function CheckpointCalendar() {
       const { data, error } = await supabase
         .from("checkpoints")
         .select(`
-          id,
-          status,
-          due_date,
-          period,
-          assigned_to,
+          id, status, due_date, period, assigned_to,
           control:controls!control_id(title, code, standard),
           assignee:profiles!assigned_to(full_name)
         `)
@@ -170,29 +154,29 @@ export default function CheckpointCalendar() {
         .gte("due_date", firstDay)
         .lte("due_date", lastDay)
 
-      if (error) { console.error("Error fetching checkpoints:", error); return }
+      if (error) { console.error("fetchCheckpoints:", error); return }
 
       if (!data || data.length === 0) {
-        // Seed with mock data
         setCheckpoints(generateMockData(year, month))
         setUsingMocks(true)
         return
       }
 
-      const mapped: CalendarCheckpoint[] = data.map((row) => {
+      const mapped: CalendarDayEvent[] = data.map(row => {
         const ctrl     = row.control as unknown as { title: string; code: string; standard: string } | null
         const assignee = row.assignee as unknown as { full_name: string } | null
-        const dueDate  = new Date((row.due_date as string) + "T12:00:00")
+        const due      = new Date((row.due_date as string) + "T12:00:00")
         return {
           id:         row.id as string,
-          day:        dueDate.getDate(),
-          label:      ctrl?.title    ?? "Unknown",
+          day:        due.getDate(),
+          label:      ctrl?.title ?? "Unknown",
           status:     (row.status as CheckpointStatus) ?? "pending",
-          standard:   ctrl?.standard ?? "Unknown",
-          control:    ctrl?.code     ?? "",
+          standard:   ctrl?.standard ?? "",
+          control:    ctrl?.code ?? "",
           assignedTo: assignee?.full_name ?? "Unassigned",
-          dueDate:    `${MONTH_NAMES[dueDate.getMonth()].slice(0, 3)} ${dueDate.getDate()}, ${dueDate.getFullYear()}`,
-          isAI:       !row.assigned_to,
+          dueDate:    `${MONTH_NAMES[due.getMonth()].slice(0, 3)} ${due.getDate()}, ${due.getFullYear()}`,
+          isAI:       !(row.assigned_to),
+          isMock:     false,
         }
       })
 
@@ -204,28 +188,30 @@ export default function CheckpointCalendar() {
   }, [])
 
   useEffect(() => {
-    if (org?.id) fetchCheckpoints(org.id, viewYear, viewMonth)
-    else {
+    if (org?.id) {
+      fetchCheckpoints(org.id, viewYear, viewMonth)
+    } else {
       setCheckpoints(generateMockData(viewYear, viewMonth))
       setUsingMocks(true)
       setLoading(false)
     }
   }, [org?.id, viewYear, viewMonth, fetchCheckpoints])
 
-  // ── Stats ─────────────────────────────────────────────────
+  // ── Stats ────────────────────────────────────────────────────────────
   const real      = checkpoints.filter(c => c.status !== "info")
   const total     = real.length
   const completed = real.filter(c => c.status === "passed").length
   const pending   = real.filter(c => c.status === "pending" || c.status === "in_progress").length
   const overdue   = real.filter(c => c.status === "overdue" || c.status === "failed").length
 
-  // ── Event map ─────────────────────────────────────────────
-  const eventMap: Record<number, CalendarCheckpoint[]> = {}
+  // ── Event map: day → events[] ────────────────────────────────────────
+  const eventMap: Record<number, CalendarDayEvent[]> = {}
   checkpoints.forEach(cp => {
-    eventMap[cp.day] = [...(eventMap[cp.day] ?? []), cp]
+    if (!eventMap[cp.day]) eventMap[cp.day] = []
+    eventMap[cp.day].push(cp)
   })
 
-  // ── Build grid cells ──────────────────────────────────────
+  // ── Grid cells ───────────────────────────────────────────────────────
   const fw    = firstWeekday(viewYear, viewMonth)
   const dim   = daysInMonth(viewYear, viewMonth)
   const cells: (number | null)[] = [
@@ -241,7 +227,7 @@ export default function CheckpointCalendar() {
     )
   }
 
-  // ── Sorted list data ──────────────────────────────────────
+  // ── Sorted list ──────────────────────────────────────────────────────
   type SortKey = "day" | "label" | "standard" | "assignedTo" | "status"
   const sorted = [...real].sort((a, b) => {
     const av = a[sortCol as SortKey]
@@ -265,11 +251,13 @@ export default function CheckpointCalendar() {
     const { year, month } = shiftMonth(viewYear, viewMonth, -1)
     setViewYear(year); setViewMonth(month)
     setGenerateMsg(null); setGenerateError(null)
+    setPopoverDay(null)
   }
   function handleNavNext() {
     const { year, month } = shiftMonth(viewYear, viewMonth, 1)
     setViewYear(year); setViewMonth(month)
     setGenerateMsg(null); setGenerateError(null)
+    setPopoverDay(null)
   }
 
   async function handleGenerate() {
@@ -300,52 +288,67 @@ export default function CheckpointCalendar() {
     }
   }
 
-  function handleEventClick(id: string) {
-    // Don't open modal for mock data
-    if (id.startsWith("mock-")) return
-    setSelectedCheckpointId(id)
+  function handleDayClick(day: number) {
+    setPopoverDay(day)
   }
 
-  function handleDayCellClick(day: number) {
-    setAddDay(day)
-    setShowAddModal(true)
+  function handleEventClick(id: string, day: number) {
+    // For mock data, still open popover (shows sample state)
+    setPopoverDay(day)
+    // If multiple events on the day, find the index of this one
+    const eventsOnDay = eventMap[day] ?? []
+    const idx = eventsOnDay.findIndex(e => e.id === id)
+    // We need to set the active index — we'll track it via a separate state
+    // For simplicity, set popover to day (popover internally handles first event)
+    // The user can navigate between events using the arrows inside the popover
+    if (idx > 0) {
+      // Pass a hint — for now, open popover at day; user navigates inside
+    }
   }
 
-  // ── Render ────────────────────────────────────────────────
+  function handleRefresh() {
+    if (org?.id) fetchCheckpoints(org.id, viewYear, viewMonth)
+    else {
+      setCheckpoints(generateMockData(viewYear, viewMonth))
+      setUsingMocks(true)
+    }
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
   return (
     <div style={{ padding: "32px" }}>
 
-      {/* ── Page header ──────────────────────────────── */}
+      {/* ── Page header ──────────────────────────────────────── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
         <div>
-          <h1 style={{ fontFamily: "var(--font-source-serif-4, serif)", fontSize: "24px", fontWeight: 700, color: "#171717", marginBottom: "4px", margin: 0 }}>
+          <h1 style={{ fontFamily: "var(--font-source-serif-4, serif)", fontSize: "24px", fontWeight: 700, color: "#171717", margin: 0 }}>
             Checkpoint Calendar
           </h1>
-          <p style={{ fontSize: "14px", color: "#737373", marginTop: "4px" }}>
-            {monthLabel(viewYear, viewMonth)} · Compliance checkpoint schedule
+          <p style={{ fontSize: "14px", color: "#737373", marginTop: "4px", marginBottom: 0 }}>
+            {monthLabel(viewYear, viewMonth)} · Click any day to view or create checkpoints
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button
-            onClick={() => { setAddDay(null); setShowAddModal(true) }}
+            onClick={() => setPopoverDay(-1)}
             disabled={!org?.id}
             style={{
               display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
-              background: !org?.id ? "#E8E8E8" : "#fff", color: !org?.id ? "#A3A3A3" : "#2A8BA8",
+              background: !org?.id ? "#E8E8E8" : "#fff",
+              color: !org?.id ? "#A3A3A3" : "#2A8BA8",
               border: "1px solid #E8E8E8", borderRadius: "6px", fontSize: "13px", fontWeight: 600,
               cursor: !org?.id ? "not-allowed" : "pointer",
             }}
           >
-            <Calendar size={14} />
-            Add Checkpoint
+            <Plus size={14} /> Add Checkpoint
           </button>
           <button
             onClick={() => setShowConfirm(true)}
             disabled={generating || !org?.id}
             style={{
               display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
-              background: generating || !org?.id ? "#A3A3A3" : "#2A8BA8", color: "#fff",
-              border: "none", borderRadius: "6px", fontSize: "13px", fontWeight: 600,
+              background: generating || !org?.id ? "#A3A3A3" : "#2A8BA8",
+              color: "#fff", border: "none", borderRadius: "6px", fontSize: "13px", fontWeight: 600,
               cursor: generating || !org?.id ? "not-allowed" : "pointer",
             }}
           >
@@ -358,29 +361,27 @@ export default function CheckpointCalendar() {
         </div>
       </div>
 
-      {/* ── Mock data banner ─────────────────────────── */}
+      {/* ── Banners ──────────────────────────────────────────── */}
       {usingMocks && (
         <div style={{ padding: "10px 14px", background: "#E8F6FA", border: "1px solid #B5E3F0", borderRadius: "6px", color: "#2A8BA8", fontSize: "13px", fontWeight: 500, marginBottom: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          Showing sample data. Generate checkpoints or add them manually to see real data.
-          <button onClick={() => { setUsingMocks(false); setCheckpoints([]) }} style={{ background: "none", border: "none", cursor: "pointer", color: "#2A8BA8", fontSize: "16px", lineHeight: 1, padding: "0 0 0 12px" }}>×</button>
+          <span>Showing sample data. Generate checkpoints or click a day to add one.</span>
+          <button onClick={() => { setUsingMocks(false); setCheckpoints([]) }} style={{ background: "none", border: "none", cursor: "pointer", color: "#2A8BA8", fontSize: "18px", lineHeight: 1, padding: "0 0 0 12px" }}>×</button>
         </div>
       )}
-
-      {/* ── Generate result messages ──────────────────── */}
       {generateMsg && (
         <div style={{ padding: "10px 14px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: "6px", color: "#15803D", fontSize: "13px", fontWeight: 500, marginBottom: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           {generateMsg}
-          <button onClick={() => setGenerateMsg(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#15803D", fontSize: "16px", lineHeight: 1, padding: "0 0 0 12px" }}>×</button>
+          <button onClick={() => setGenerateMsg(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#15803D", fontSize: "18px", lineHeight: 1, padding: "0 0 0 12px" }}>×</button>
         </div>
       )}
       {generateError && (
         <div style={{ padding: "10px 14px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: "6px", color: "#DC2626", fontSize: "13px", fontWeight: 500, marginBottom: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           {generateError}
-          <button onClick={() => setGenerateError(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#DC2626", fontSize: "16px", lineHeight: 1, padding: "0 0 0 12px" }}>×</button>
+          <button onClick={() => setGenerateError(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#DC2626", fontSize: "18px", lineHeight: 1, padding: "0 0 0 12px" }}>×</button>
         </div>
       )}
 
-      {/* ── Stats bar ────────────────────────────────── */}
+      {/* ── Stats bar ─────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "20px" }}>
         {[
           { label: "Total",            value: total,     color: "#2A8BA8", bg: "#E8F6FA" },
@@ -405,7 +406,7 @@ export default function CheckpointCalendar() {
         ))}
       </div>
 
-      {/* ── Month nav + view toggle ─────────────────── */}
+      {/* ── Month nav + view toggle ───────────────────────────── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <button
@@ -446,7 +447,7 @@ export default function CheckpointCalendar() {
         </div>
       </div>
 
-      {/* ── Loading state ────────────────────────────── */}
+      {/* ── Loading ──────────────────────────────────────────── */}
       {loading && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "60px 0", color: "#737373", gap: 10 }}>
           <Loader2 size={20} style={{ animation: "spin 1s linear infinite" }} />
@@ -454,9 +455,11 @@ export default function CheckpointCalendar() {
         </div>
       )}
 
-      {/* ── Calendar grid ────────────────────────────── */}
+      {/* ── CALENDAR GRID ────────────────────────────────────── */}
       {!loading && view === "calendar" && (
         <div style={{ background: "#fff", border: "1px solid #E8E8E8", borderRadius: "10px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+
+          {/* Day headers */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: "2px solid #E8E8E8" }}>
             {DAY_HEADERS.map(d => (
               <div key={d} style={{ padding: "10px 0", fontSize: "11px", fontWeight: 700, color: "#737373", textAlign: "center", textTransform: "uppercase", letterSpacing: "0.06em", background: "#FAFAFA" }}>
@@ -465,6 +468,7 @@ export default function CheckpointCalendar() {
             ))}
           </div>
 
+          {/* Day cells — EVERY valid cell is clickable */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
             {cells.map((day, idx) => {
               const isToday     = isCurrentMonth && day === TODAY_DAY
@@ -474,22 +478,28 @@ export default function CheckpointCalendar() {
               const extra       = dayEvents.length - visible.length
               const isLastRow   = idx >= cells.length - 7
               const isLastInRow = (idx + 1) % 7 === 0
-              const isEmpty     = day !== null && dayEvents.length === 0
+              const isSelected  = popoverDay === day
 
               return (
                 <div
                   key={idx}
+                  onClick={day !== null ? () => handleDayClick(day) : undefined}
                   style={{
                     minHeight: 96,
                     padding: "7px 6px 6px",
-                    borderRight: !isLastInRow ? "1px solid #F5F5F5" : "none",
-                    borderBottom: !isLastRow  ? "1px solid #F5F5F5" : "none",
-                    background: day === null ? "#FAFAFA" : pastBad ? "#FFF8F8" : "#fff",
+                    borderRight:  !isLastInRow ? "1px solid #F5F5F5" : "none",
+                    borderBottom: !isLastRow   ? "1px solid #F5F5F5" : "none",
+                    background: day === null ? "#FAFAFA"
+                      : isSelected ? "#F0F9FC"
+                      : pastBad    ? "#FFF8F8"
+                      : "#fff",
                     outline: isToday ? "2px solid #3BA7C9" : "none",
                     outlineOffset: -2,
+                    cursor: day !== null ? "pointer" : "default",
                     position: "relative",
+                    transition: "background 0.1s",
                   }}
-                  className="calendar-day-cell"
+                  className={day !== null ? "calendar-day-cell" : ""}
                 >
                   {day !== null && (
                     <>
@@ -503,21 +513,26 @@ export default function CheckpointCalendar() {
                         }}>
                           {day}
                         </span>
-                        {isEmpty && org?.id && (
-                          <button
-                            onClick={() => handleDayCellClick(day)}
-                            className="day-add-btn"
+                        {/* Show a tiny + hint on hover for empty days */}
+                        {dayEvents.length === 0 && (
+                          <span
+                            className="day-add-hint"
                             style={{
-                              width: 18, height: 18, borderRadius: "50%", border: "1px solid #E8E8E8",
-                              background: "#fff", display: "flex", alignItems: "center", justifyContent: "center",
-                              cursor: "pointer", opacity: 0, transition: "opacity 0.15s",
-                              padding: 0, lineHeight: 1, fontSize: 14, color: "#A3A3A3",
+                              fontSize: "16px", color: "#D4D4D4", lineHeight: 1,
+                              opacity: 0, transition: "opacity 0.15s", pointerEvents: "none",
                             }}
                           >
                             +
-                          </button>
+                          </span>
+                        )}
+                        {/* Event count badge for 3+ events */}
+                        {dayEvents.length > 2 && (
+                          <span style={{ fontSize: "10px", fontWeight: 700, color: "#3BA7C9", background: "#E8F6FA", borderRadius: "10px", padding: "1px 5px" }}>
+                            {dayEvents.length}
+                          </span>
                         )}
                       </div>
+
                       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                         {visible.map(ev => (
                           <CalendarEvent
@@ -529,11 +544,11 @@ export default function CheckpointCalendar() {
                             dueDate={ev.dueDate}
                             assignedTo={ev.assignedTo}
                             isAI={ev.isAI}
-                            onClick={handleEventClick}
+                            onClick={(id) => { handleEventClick(id, day) }}
                           />
                         ))}
                         {extra > 0 && (
-                          <span style={{ fontSize: "10px", fontWeight: 600, color: "#3BA7C9", cursor: "pointer", paddingLeft: 4 }}>
+                          <span style={{ fontSize: "10px", fontWeight: 600, color: "#3BA7C9", paddingLeft: 4 }}>
                             +{extra} more
                           </span>
                         )}
@@ -547,7 +562,7 @@ export default function CheckpointCalendar() {
         </div>
       )}
 
-      {/* ── List view ────────────────────────────────── */}
+      {/* ── LIST VIEW ─────────────────────────────────────────── */}
       {!loading && view === "list" && (
         <div style={{ background: "#fff", border: "1px solid #E8E8E8", borderRadius: "10px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
@@ -571,7 +586,7 @@ export default function CheckpointCalendar() {
                   </th>
                 ))}
                 <th style={{ padding: "10px 14px", textAlign: "left", fontWeight: 700, fontSize: "11px", color: "#737373", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  Control Code
+                  Code
                 </th>
               </tr>
             </thead>
@@ -584,12 +599,13 @@ export default function CheckpointCalendar() {
                 </tr>
               )}
               {sorted.map((cp, i) => {
-                const sc = STATUS_CFG[cp.status]
+                const sc = STATUS_CFG[cp.status as CheckpointStatus] ?? STATUS_CFG.pending
                 return (
                   <tr
                     key={cp.id}
-                    onClick={() => handleEventClick(cp.id)}
-                    style={{ borderBottom: i < sorted.length - 1 ? "1px solid #F5F5F5" : "none", cursor: cp.isMock ? "default" : "pointer" }}
+                    onClick={() => handleDayClick(cp.day)}
+                    style={{ borderBottom: i < sorted.length - 1 ? "1px solid #F5F5F5" : "none", cursor: "pointer" }}
+                    className="list-row"
                   >
                     <td style={{ padding: "11px 14px", color: "#525252", fontWeight: 500, whiteSpace: "nowrap" }}>
                       {MONTH_NAMES[viewMonth].slice(0, 3)} {cp.day}
@@ -624,7 +640,7 @@ export default function CheckpointCalendar() {
         </div>
       )}
 
-      {/* ── Legend ────────────────────────────────────── */}
+      {/* ── Legend ───────────────────────────────────────────── */}
       {!loading && view === "calendar" && (
         <div style={{ display: "flex", gap: "16px", marginTop: "14px", flexWrap: "wrap", alignItems: "center" }}>
           {(Object.entries(STATUS_CFG) as [CheckpointStatus, typeof STATUS_CFG[CheckpointStatus]][])
@@ -639,22 +655,17 @@ export default function CheckpointCalendar() {
             <span style={{ width: 9, height: 9, borderRadius: "50%", background: "#3BA7C9", display: "inline-block", flexShrink: 0 }} />
             Today
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: "12px", color: "#737373" }}>
-            <span style={{ width: 9, height: 9, borderRadius: 2, background: "#FCA5A5", display: "inline-block", flexShrink: 0 }} />
-            Past day with incomplete items
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: "12px", color: "#525252" }}>
-            <span style={{ fontSize: "9px", fontWeight: 700, color: "#fff", background: "#3BA7C9", borderRadius: "3px", padding: "1px 4px", lineHeight: 1 }}>AI</span>
-            Auto-generated
+          <div style={{ fontSize: "12px", color: "#737373", marginLeft: "auto" }}>
+            Click any day to view or add checkpoints
           </div>
         </div>
       )}
 
-      {/* ── Generate Confirmation Modal ───────────────── */}
+      {/* ── Generate confirmation modal ───────────────────── */}
       {showConfirm && (
         <div
           onClick={() => setShowConfirm(false)}
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 997 }}
         >
           <div
             onClick={e => e.stopPropagation()}
@@ -693,296 +704,27 @@ export default function CheckpointCalendar() {
         </div>
       )}
 
-      {/* ── Add Checkpoint Modal ──────────────────────── */}
-      {showAddModal && org?.id && (
-        <AddCheckpointModal
+      {/* ── CHECKPOINT POPOVER ────────────────────────────── */}
+      {org?.id && userId && (
+        <CheckpointPopover
+          isOpen={popoverDay !== null}
+          onClose={() => setPopoverDay(null)}
+          selectedDay={popoverDay === -1 ? null : popoverDay}
+          selectedYear={viewYear}
+          selectedMonth={viewMonth}
+          dayEvents={popoverDay !== null && popoverDay !== -1 ? (eventMap[popoverDay] ?? []) : []}
           orgId={org.id}
-          defaultDay={addDay}
-          viewYear={viewYear}
-          viewMonth={viewMonth}
-          onClose={() => { setShowAddModal(false); setAddDay(null) }}
-          onCreated={() => {
-            setShowAddModal(false)
-            setAddDay(null)
-            if (org?.id) fetchCheckpoints(org.id, viewYear, viewMonth)
-          }}
-        />
-      )}
-
-      {/* ── Checkpoint Detail Modal ──────────────────── */}
-      {selectedCheckpointId && org?.id && (
-        <CheckpointDetailModalWrapper
-          checkpointId={selectedCheckpointId}
-          orgId={org.id}
-          onClose={() => setSelectedCheckpointId(null)}
-          onComplete={() => {
-            setSelectedCheckpointId(null)
-            if (org?.id) fetchCheckpoints(org.id, viewYear, viewMonth)
-          }}
+          userId={userId}
+          onRefresh={handleRefresh}
         />
       )}
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg) } }
-        .calendar-day-cell:hover .day-add-btn { opacity: 1 !important; }
+        .calendar-day-cell:hover { background: #F0F9FC !important; }
+        .calendar-day-cell:hover .day-add-hint { opacity: 1 !important; }
+        .list-row:hover { background: #F8FBFD; }
       `}</style>
-    </div>
-  )
-}
-
-// ── Checkpoint Detail Modal Wrapper ─────────────────────────────
-function CheckpointDetailModalWrapper({ checkpointId, orgId, onClose, onComplete }: {
-  checkpointId: string
-  orgId: string
-  onClose: () => void
-  onComplete: () => void
-}) {
-  const [userId, setUserId] = useState<string | null>(null)
-
-  useEffect(() => {
-    async function getUser() {
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      if (user) setUserId(user.id)
-    }
-    getUser()
-  }, [])
-
-  if (!userId) return null
-
-  return (
-    <CheckpointModal
-      checkpointId={checkpointId}
-      orgId={orgId}
-      userId={userId}
-      onClose={onClose}
-      onComplete={onComplete}
-    />
-  )
-}
-
-// ── Add Checkpoint Modal ────────────────────────────────────────
-function AddCheckpointModal({ orgId, defaultDay, viewYear, viewMonth, onClose, onCreated }: {
-  orgId: string
-  defaultDay: number | null
-  viewYear: number
-  viewMonth: number
-  onClose: () => void
-  onCreated: () => void
-}) {
-  const [controls, setControls] = useState<{ id: string; code: string; title: string; standard: string }[]>([])
-  const [members, setMembers]   = useState<{ id: string; full_name: string }[]>([])
-  const [loadingData, setLoadingData] = useState(true)
-
-  const [selectedControl, setSelectedControl] = useState("")
-  const [assignedTo, setAssignedTo]           = useState("")
-  const [dueDay, setDueDay]                   = useState(defaultDay?.toString() ?? "")
-  const [notes, setNotes]                     = useState("")
-  const [saving, setSaving]                   = useState(false)
-  const [error, setError]                     = useState<string | null>(null)
-
-  const dim = daysInMonth(viewYear, viewMonth)
-
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient()
-
-      const [controlsRes, membersRes] = await Promise.all([
-        supabase.from("controls").select("id, code, title, standard").eq("org_id", orgId).eq("is_active", true).order("code"),
-        supabase.from("org_members").select("user_id, profiles(full_name)").eq("org_id", orgId).eq("is_active", true),
-      ])
-
-      if (controlsRes.data) {
-        setControls(controlsRes.data as { id: string; code: string; title: string; standard: string }[])
-      }
-      if (membersRes.data) {
-        setMembers(membersRes.data.map((m) => ({
-          id: m.user_id as string,
-          full_name: (m.profiles as unknown as { full_name: string })?.full_name ?? "Unknown",
-        })))
-      }
-      setLoadingData(false)
-    }
-    load()
-  }, [orgId])
-
-  async function handleSave() {
-    if (!selectedControl || !dueDay) return
-    setSaving(true)
-    setError(null)
-
-    const dayNum = parseInt(dueDay)
-    if (isNaN(dayNum) || dayNum < 1 || dayNum > dim) {
-      setError("Invalid day")
-      setSaving(false)
-      return
-    }
-
-    const dueDate = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`
-    const period = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}`
-
-    const supabase = createClient()
-    const { error: insertErr } = await supabase
-      .from("checkpoints")
-      .insert({
-        org_id: orgId,
-        control_id: selectedControl,
-        period,
-        status: "pending",
-        assigned_to: assignedTo || null,
-        due_date: dueDate,
-        notes: notes.trim() || null,
-      })
-
-    if (insertErr) {
-      setError(insertErr.message)
-      setSaving(false)
-      return
-    }
-
-    setSaving(false)
-    onCreated()
-  }
-
-  return (
-    <div
-      onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999 }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{ background: "#fff", borderRadius: "12px", padding: "28px 32px", maxWidth: 480, width: "100%", margin: "0 16px", boxShadow: "0 20px 60px rgba(0,0,0,0.18)" }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
-          <h3 style={{ fontFamily: "var(--font-source-serif-4, serif)", fontSize: "18px", fontWeight: 700, color: "#171717", margin: 0 }}>
-            Add Checkpoint
-          </h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#A3A3A3", padding: 0, display: "flex" }}>
-            <X size={18} />
-          </button>
-        </div>
-
-        {loadingData ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 0", gap: 10, color: "#737373" }}>
-            <Loader2 size={18} style={{ animation: "spin 1s linear infinite" }} />
-            <span style={{ fontSize: 13 }}>Loading...</span>
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {/* Control */}
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#525252", display: "block", marginBottom: 6 }}>
-                Control <span style={{ color: "#DC2626" }}>*</span>
-              </label>
-              <select
-                value={selectedControl}
-                onChange={e => setSelectedControl(e.target.value)}
-                style={{
-                  width: "100%", padding: "9px 12px", border: "1px solid #D4D4D4", borderRadius: 6,
-                  fontSize: 13, color: selectedControl ? "#171717" : "#A3A3A3", background: "#fff",
-                  fontFamily: "inherit", outline: "none", boxSizing: "border-box",
-                }}
-              >
-                <option value="">Select a control...</option>
-                {controls.map(c => (
-                  <option key={c.id} value={c.id}>{c.code} — {c.title} ({c.standard})</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Assigned To */}
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#525252", display: "block", marginBottom: 6 }}>
-                Assigned To
-              </label>
-              <select
-                value={assignedTo}
-                onChange={e => setAssignedTo(e.target.value)}
-                style={{
-                  width: "100%", padding: "9px 12px", border: "1px solid #D4D4D4", borderRadius: 6,
-                  fontSize: 13, color: assignedTo ? "#171717" : "#A3A3A3", background: "#fff",
-                  fontFamily: "inherit", outline: "none", boxSizing: "border-box",
-                }}
-              >
-                <option value="">Unassigned</option>
-                {members.map(m => (
-                  <option key={m.id} value={m.id}>{m.full_name}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Due Day */}
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#525252", display: "block", marginBottom: 6 }}>
-                Due Date <span style={{ color: "#DC2626" }}>*</span>
-              </label>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 13, color: "#737373" }}>
-                  {MONTH_NAMES[viewMonth]}
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  max={dim}
-                  value={dueDay}
-                  onChange={e => setDueDay(e.target.value)}
-                  placeholder="Day"
-                  style={{
-                    width: 70, padding: "9px 12px", border: "1px solid #D4D4D4", borderRadius: 6,
-                    fontSize: 13, color: "#171717", fontFamily: "inherit", outline: "none", textAlign: "center",
-                  }}
-                />
-                <span style={{ fontSize: 13, color: "#737373" }}>, {viewYear}</span>
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: "#525252", display: "block", marginBottom: 6 }}>Notes</label>
-              <textarea
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                placeholder="Optional notes..."
-                style={{
-                  width: "100%", padding: "9px 12px", border: "1px solid #D4D4D4", borderRadius: 6,
-                  fontSize: 13, color: "#171717", resize: "vertical", minHeight: 60, fontFamily: "inherit",
-                  boxSizing: "border-box", outline: "none",
-                }}
-              />
-            </div>
-
-            {/* Error */}
-            {error && (
-              <div style={{ padding: "8px 12px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 6, fontSize: 12, color: "#DC2626" }}>
-                {error}
-              </div>
-            )}
-
-            {/* Actions */}
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
-              <button
-                onClick={onClose}
-                style={{ padding: "8px 18px", borderRadius: "6px", border: "1px solid #E8E8E8", background: "#fff", fontSize: "13px", fontWeight: 600, color: "#525252", cursor: "pointer" }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={!selectedControl || !dueDay || saving}
-                style={{
-                  padding: "8px 18px", borderRadius: "6px", border: "none",
-                  background: !selectedControl || !dueDay || saving ? "#E8E8E8" : "#2A8BA8",
-                  fontSize: "13px", fontWeight: 600,
-                  color: !selectedControl || !dueDay || saving ? "#A3A3A3" : "#fff",
-                  cursor: !selectedControl || !dueDay || saving ? "not-allowed" : "pointer",
-                }}
-              >
-                {saving ? "Saving..." : "Add Checkpoint"}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   )
 }
