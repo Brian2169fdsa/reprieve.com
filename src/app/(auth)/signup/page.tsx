@@ -48,20 +48,10 @@ export default function SignupPage() {
 
     const userId = signUpData.user.id;
 
-    // 2. Create profile record
-    const { error: profileError } = await supabase.from('profiles').insert({
-      id: userId,
-      full_name: fullName,
-      email,
-    });
+    // Profile is auto-created by the handle_new_user trigger in the database.
+    // Proceed directly to org creation.
 
-    if (profileError) {
-      setError('Account created but profile setup failed. Please contact support.');
-      setLoading(false);
-      return;
-    }
-
-    // 3. Create organization
+    // 2. Create organization
     const slug = slugify(orgName) || `org-${Date.now()}`;
     const { data: orgData, error: orgError } = await supabase
       .from('organizations')
@@ -75,7 +65,7 @@ export default function SignupPage() {
       return;
     }
 
-    // 4. Link user to org as admin
+    // 3. Link user to org as admin
     const { error: memberError } = await supabase.from('org_members').insert({
       org_id: orgData.id,
       user_id: userId,

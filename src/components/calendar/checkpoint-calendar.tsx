@@ -1,9 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import Link from "next/link"
-import { ChevronLeft, ChevronRight, LayoutGrid, List, Plus, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, LayoutGrid, List, Plus, X, Loader2 } from "lucide-react"
 import CalendarEvent from "./calendar-event"
+import { createClient } from "@/lib/supabase/client"
+import { useOrg } from "@/hooks/use-org"
+import { generateCheckpoints } from "@/app/(portal)/controls/generate-checkpoints"
 
 // ── Types ───────────────────────────────────────────────
 type CheckpointStatus =
@@ -25,22 +28,6 @@ interface Checkpoint {
   assignedTo: string
   dueDate: string
 }
-
-// ── Seed data — February 2026 ───────────────────────────
-const FEB_2026: Checkpoint[] = [
-  { id: "cp-001", day: 1,  label: "Checkpoints Generated",     status: "info",        standard: "System",     control: "Monthly Generation", assignedTo: "System",          dueDate: "Feb 1, 2026"  },
-  { id: "cp-002", day: 3,  label: "OIG Exclusion Screening",   status: "passed",      standard: "OIG",        control: "OIG-SCR-001",        assignedTo: "Sarah Chen",      dueDate: "Feb 3, 2026"  },
-  { id: "cp-003", day: 5,  label: "Credential Verification",   status: "pending",     standard: "HR",         control: "HR-CRED-001",        assignedTo: "David Kim",       dueDate: "Feb 5, 2026"  },
-  { id: "cp-004", day: 8,  label: "Incident Review",           status: "passed",      standard: "Safety",     control: "SAFE-INC-001",       assignedTo: "Maria Rodriguez", dueDate: "Feb 8, 2026"  },
-  { id: "cp-005", day: 10, label: "Credential Verification",   status: "passed",      standard: "HR",         control: "HR-CRED-002",        assignedTo: "David Kim",       dueDate: "Feb 10, 2026" },
-  { id: "cp-006", day: 12, label: "HIPAA Audit",               status: "passed",      standard: "HIPAA",      control: "HIPAA-SA-001",       assignedTo: "Sarah Chen",      dueDate: "Feb 12, 2026" },
-  { id: "cp-007", day: 15, label: "Fire Drill Log",            status: "failed",      standard: "Safety",     control: "SAFE-FD-001",        assignedTo: "Maria Rodriguez", dueDate: "Feb 15, 2026" },
-  { id: "cp-008", day: 18, label: "Chart Audit",               status: "passed",      standard: "AHCCCS",     control: "AHCCCS-CHA-001",     assignedTo: "James Williams",  dueDate: "Feb 18, 2026" },
-  { id: "cp-009", day: 20, label: "CAPA Follow-Up",            status: "overdue",     standard: "Quality",    control: "QM-CAPA-001",        assignedTo: "Sarah Chen",      dueDate: "Feb 20, 2026" },
-  { id: "cp-010", day: 22, label: "Grievance Log Review",      status: "passed",      standard: "Operations", control: "OPS-GRV-001",        assignedTo: "Wayne Giles",     dueDate: "Feb 22, 2026" },
-  { id: "cp-011", day: 28, label: "OIG Exclusion Check",       status: "pending",     standard: "OIG",        control: "OIG-EXC-001",        assignedTo: "Sarah Chen",      dueDate: "Feb 28, 2026" },
-  { id: "cp-012", day: 28, label: "Staff Training Verification", status: "pending",   standard: "HR",         control: "HR-TRNG-001",        assignedTo: "David Kim",       dueDate: "Feb 28, 2026" },
-]
 
 // ── Config ──────────────────────────────────────────────
 const STATUS_CFG: Record<CheckpointStatus, { label: string; dot: string; bg: string; text: string }> = {
@@ -70,22 +57,103 @@ function shiftMonth(y: number, m: number, d: number) {
   return { year: ny, month: nm }
 }
 
+/** Format "YYYY-MM" period string from 0-indexed month */
+function periodString(year: number, month0: number): string {
+  return `${year}-${String(month0 + 1).padStart(2, "0")}`
+}
+
+/** Format a date string to a readable label */
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00")
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+}
+
 // ── Component ───────────────────────────────────────────
 export default function CheckpointCalendar() {
-  const [viewYear, setViewYear]   = useState(2026)
-  const [viewMonth, setViewMonth] = useState(1)           // 0-indexed; 1 = February
+  const now = new Date()
+  const [viewYear, setViewYear]   = useState(now.getFullYear())
+  const [viewMonth, setViewMonth] = useState(now.getMonth())
   const [view, setView]           = useState<"calendar" | "list">("calendar")
   const [showConfirm, setShowConfirm] = useState(false)
   const [sortCol, setSortCol]     = useState<"day" | "label" | "standard" | "assignedTo" | "status">("day")
   const [sortDir, setSortDir]     = useState<"asc" | "desc">("asc")
 
-  // Today = Feb 25 2026
-  const TODAY_DAY = 25, TODAY_MONTH = 1, TODAY_YEAR = 2026
-  const isCurrentMonth = viewYear === TODAY_YEAR && viewMonth === TODAY_MONTH
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
+  const [loading, setLoading]         = useState(true)
+  const [generating, setGenerating]   = useState(false)
+  const [generateMsg, setGenerateMsg] = useState<{ type: "success" | "error"; text: string } | null>(null)
 
-  // Data: seed for Feb 2026, empty otherwise
-  const checkpoints: Checkpoint[] =
-    viewYear === 2026 && viewMonth === 1 ? FEB_2026 : []
+  const { org } = useOrg()
+
+  const todayDay   = now.getDate()
+  const todayMonth = now.getMonth()
+  const todayYear  = now.getFullYear()
+  const isCurrentMonth = viewYear === todayYear && viewMonth === todayMonth
+
+  // ── Fetch checkpoints for displayed month ──────────────
+  const fetchCheckpoints = useCallback(async () => {
+    if (!org?.id) return
+    setLoading(true)
+
+    const supabase = createClient()
+    const period = periodString(viewYear, viewMonth)
+
+    // Also fetch quarterly/semi-annual/annual periods that overlap this month
+    const month1 = viewMonth + 1 // 1-indexed
+    const quarterLabel = `${viewYear}-Q${Math.ceil(month1 / 3)}`
+    const halfLabel = `${viewYear}-${month1 <= 6 ? "H1" : "H2"}`
+    const yearLabel = `${viewYear}`
+
+    const periods = [period, quarterLabel, halfLabel, yearLabel]
+
+    const { data, error } = await supabase
+      .from("checkpoints")
+      .select(`
+        id,
+        status,
+        due_date,
+        period,
+        assigned_to,
+        controls ( id, code, title, standard ),
+        profiles:assigned_to ( full_name )
+      `)
+      .eq("org_id", org.id)
+      .in("period", periods)
+      .order("due_date", { ascending: true })
+
+    if (error) {
+      console.error("Failed to fetch checkpoints:", error.message)
+      setCheckpoints([])
+      setLoading(false)
+      return
+    }
+
+    // Transform DB rows into our component's Checkpoint shape
+    const mapped: Checkpoint[] = (data ?? []).map((row) => {
+      const ctrl = row.controls as unknown as { id: string; code: string; title: string; standard: string } | null
+      const prof = row.profiles as unknown as { full_name: string } | null
+      const dueDate = row.due_date as string
+      const day = new Date(dueDate + "T00:00:00").getDate()
+
+      return {
+        id: row.id as string,
+        day,
+        label: ctrl?.title ?? "Checkpoint",
+        status: row.status as CheckpointStatus,
+        standard: ctrl?.standard ?? "—",
+        control: ctrl?.code ?? "—",
+        assignedTo: prof?.full_name ?? "Unassigned",
+        dueDate: formatDate(dueDate),
+      }
+    })
+
+    setCheckpoints(mapped)
+    setLoading(false)
+  }, [org?.id, viewYear, viewMonth])
+
+  useEffect(() => {
+    fetchCheckpoints()
+  }, [fetchCheckpoints])
 
   // Stats (exclude "info" entries)
   const real      = checkpoints.filter(c => c.status !== "info")
@@ -111,7 +179,7 @@ export default function CheckpointCalendar() {
 
   // Past day with incomplete checkpoints?
   function isPastIncomplete(day: number) {
-    if (!isCurrentMonth || day >= TODAY_DAY) return false
+    if (!isCurrentMonth || day >= todayDay) return false
     return (eventMap[day] ?? []).some(
       c => c.status === "pending" || c.status === "in_progress" || c.status === "overdue"
     )
@@ -134,6 +202,7 @@ export default function CheckpointCalendar() {
 
   const next        = shiftMonth(viewYear, viewMonth, 1)
   const nextLabel   = monthLabel(next.year, next.month)
+  const nextPeriod  = periodString(next.year, next.month)
   const SortArrow   = ({ col }: { col: typeof sortCol }) =>
     sortCol === col ? (sortDir === "asc" ? " ↑" : " ↓") : ""
 
@@ -145,9 +214,34 @@ export default function CheckpointCalendar() {
     const { year, month } = shiftMonth(viewYear, viewMonth, 1)
     setViewYear(year); setViewMonth(month)
   }
-  function handleGenerate() {
+
+  async function handleGenerate() {
+    if (!org?.id) return
     setShowConfirm(false)
-    alert(`Generating checkpoints for ${nextLabel}… (Supabase integration pending)`)
+    setGenerating(true)
+    setGenerateMsg(null)
+
+    try {
+      const result = await generateCheckpoints(org.id, nextPeriod)
+      if (result.error) {
+        setGenerateMsg({ type: "error", text: result.error })
+      } else {
+        const parts: string[] = []
+        if (result.count > 0) parts.push(`${result.count} checkpoint${result.count !== 1 ? "s" : ""} generated`)
+        if (result.skipped > 0) parts.push(`${result.skipped} skipped (already exist)`)
+        if (result.count === 0 && result.skipped === 0) parts.push("No applicable controls for this period")
+        setGenerateMsg({ type: "success", text: parts.join(". ") })
+
+        // If we generated for the next month and we're viewing it, refetch
+        if (next.year === viewYear && next.month === viewMonth) {
+          fetchCheckpoints()
+        }
+      }
+    } catch (err) {
+      setGenerateMsg({ type: "error", text: err instanceof Error ? err.message : "Generation failed" })
+    } finally {
+      setGenerating(false)
+    }
   }
 
   // ── Render ─────────────────────────────────────────────
@@ -166,12 +260,37 @@ export default function CheckpointCalendar() {
         </div>
         <button
           onClick={() => setShowConfirm(true)}
-          style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: "#2A8BA8", color: "#fff", border: "none", borderRadius: "6px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+          disabled={generating || !org?.id}
+          style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px", background: generating ? "#A3A3A3" : "#2A8BA8", color: "#fff", border: "none", borderRadius: "6px", fontSize: "13px", fontWeight: 600, cursor: generating ? "not-allowed" : "pointer" }}
         >
-          <Plus size={14} />
-          Generate Checkpoints
+          {generating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+          {generating ? "Generating…" : "Generate Checkpoints"}
         </button>
       </div>
+
+      {/* ── Generate result message ─────────────── */}
+      {generateMsg && (
+        <div
+          style={{
+            padding: "10px 14px",
+            marginBottom: "16px",
+            borderRadius: "8px",
+            fontSize: "13px",
+            fontWeight: 500,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            background: generateMsg.type === "success" ? "#F0FDF4" : "#FEF2F2",
+            color: generateMsg.type === "success" ? "#15803D" : "#DC2626",
+            border: `1px solid ${generateMsg.type === "success" ? "#BBF7D0" : "#FECACA"}`,
+          }}
+        >
+          <span>{generateMsg.text}</span>
+          <button onClick={() => setGenerateMsg(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, display: "flex" }}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* ── Stats bar ────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginBottom: "20px" }}>
@@ -188,7 +307,9 @@ export default function CheckpointCalendar() {
             <div style={{ fontSize: "11px", fontWeight: 700, color: "#737373", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>
               {label}
             </div>
-            <div style={{ fontSize: "28px", fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
+            <div style={{ fontSize: "28px", fontWeight: 700, color, lineHeight: 1 }}>
+              {loading ? "–" : value}
+            </div>
             <div style={{ fontSize: "11px", color, background: bg, borderRadius: "4px", padding: "2px 6px", display: "inline-block", marginTop: "6px", fontWeight: 600 }}>
               {MONTH_NAMES[viewMonth].slice(0, 3)} {viewYear}
             </div>
@@ -239,8 +360,16 @@ export default function CheckpointCalendar() {
         </div>
       </div>
 
+      {/* ── Loading state ────────────────────────── */}
+      {loading && (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "60px 0", color: "#737373", gap: "8px" }}>
+          <Loader2 size={18} className="animate-spin" />
+          <span style={{ fontSize: "14px" }}>Loading checkpoints…</span>
+        </div>
+      )}
+
       {/* ── Calendar grid ─────────────────────────── */}
-      {view === "calendar" && (
+      {!loading && view === "calendar" && (
         <div style={{ background: "#fff", border: "1px solid #E8E8E8", borderRadius: "10px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
           {/* Day headers */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: "2px solid #E8E8E8" }}>
@@ -254,7 +383,7 @@ export default function CheckpointCalendar() {
           {/* Weeks */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)" }}>
             {cells.map((day, idx) => {
-              const isToday      = isCurrentMonth && day === TODAY_DAY
+              const isToday      = isCurrentMonth && day === todayDay
               const pastBad      = day !== null && isPastIncomplete(day)
               const dayEvents    = day !== null ? (eventMap[day] ?? []) : []
               const visible      = dayEvents.slice(0, 2)
@@ -319,7 +448,7 @@ export default function CheckpointCalendar() {
       )}
 
       {/* ── List view ─────────────────────────────── */}
-      {view === "list" && (
+      {!loading && view === "list" && (
         <div style={{ background: "#fff", border: "1px solid #E8E8E8", borderRadius: "10px", overflow: "hidden", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
             <thead>
@@ -392,7 +521,7 @@ export default function CheckpointCalendar() {
       )}
 
       {/* ── Legend ────────────────────────────────── */}
-      {view === "calendar" && (
+      {!loading && view === "calendar" && (
         <div style={{ display: "flex", gap: "16px", marginTop: "14px", flexWrap: "wrap", alignItems: "center" }}>
           {(Object.entries(STATUS_CFG) as [CheckpointStatus, typeof STATUS_CFG[CheckpointStatus]][])
             .filter(([k]) => k !== "info")
@@ -435,8 +564,8 @@ export default function CheckpointCalendar() {
               </button>
             </div>
             <p style={{ fontSize: "14px", color: "#525252", lineHeight: 1.6, marginBottom: 8 }}>
-              Generate <strong style={{ color: "#2A8BA8" }}>24 checkpoints</strong> for{" "}
-              <strong>{nextLabel}</strong>?
+              Generate checkpoints for{" "}
+              <strong style={{ color: "#2A8BA8" }}>{nextLabel}</strong> from all active controls?
             </p>
             <p style={{ fontSize: "13px", color: "#737373", lineHeight: 1.6, marginBottom: 24 }}>
               This will create checkpoint tasks from all active controls for {nextLabel}. Existing checkpoints for this period will not be duplicated.
@@ -452,7 +581,7 @@ export default function CheckpointCalendar() {
                 onClick={handleGenerate}
                 style={{ padding: "8px 18px", borderRadius: "6px", border: "none", background: "#2A8BA8", fontSize: "13px", fontWeight: 600, color: "#fff", cursor: "pointer" }}
               >
-                Generate 24 Checkpoints
+                Generate for {nextLabel}
               </button>
             </div>
           </div>
