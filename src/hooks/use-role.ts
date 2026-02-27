@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import type { OrgRole } from '@/lib/types';
 
 interface UseRoleResult {
@@ -19,23 +18,12 @@ export function useRole(): UseRoleResult {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const supabase = createClient();
-
     async function fetchRole() {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-
-        const { data } = await supabase
-          .from('org_members')
-          .select('role')
-          .eq('user_id', user.id)
-          .eq('is_active', true)
-          .single();
-
-        if (data?.role) {
-          setRole(data.role as OrgRole);
-        }
+        const res = await fetch('/api/me');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.role) setRole(data.role as OrgRole);
       } finally {
         setIsLoading(false);
       }
