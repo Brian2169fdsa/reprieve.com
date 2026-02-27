@@ -52,7 +52,14 @@ export default function SignupPage() {
     setLoading(true);
     setError(null);
 
-    const supabase = createClient();
+    let supabase;
+    try {
+      supabase = createClient();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.');
+      setLoading(false);
+      return;
+    }
 
     // 1. Create auth user
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
