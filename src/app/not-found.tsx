@@ -22,12 +22,24 @@ export default function NotFound() {
           The page you&apos;re looking for doesn&apos;t exist or you don&apos;t have permission to access it.
         </p>
 
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-dark text-white rounded-[6px] text-sm font-semibold no-underline transition-colors hover:bg-blue"
-        >
-          ← Back to Dashboard
-        </Link>
+        <div className="flex items-center justify-center gap-3">
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-dark text-white rounded-[6px] text-sm font-semibold no-underline transition-colors hover:bg-blue"
+          >
+            ← Back to Dashboard
+          </Link>
+          <Link
+            href="/"
+            className="inline-flex items-center px-5 py-2.5 bg-white text-g700 border border-g200 rounded-[6px] text-sm font-semibold no-underline transition-colors hover:bg-g100"
+          >
+            Back to Home
+          </Link>
+        </div>
+
+        <p className="mt-6 text-xs text-g400">
+          If you believe this is an error, contact your administrator.
+        </p>
       </div>
     </div>
   );
