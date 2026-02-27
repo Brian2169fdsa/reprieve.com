@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import type { Organization } from '@/lib/types';
 
 interface UseOrgResult {
@@ -16,34 +15,17 @@ export function useOrg(): UseOrgResult {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const supabase = createClient();
-
     async function fetchOrg() {
       try {
         setIsLoading(true);
-        setError(null);
-
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        if (userError || !user) {
-          setError('Not authenticated');
+        const res = await fetch('/api/me');
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error ?? 'Failed to load organization');
           return;
         }
-
-        const { data, error: memberError } = await supabase
-          .from('org_members')
-          .select('org_id, organizations(*)')
-          .eq('user_id', user.id)
-          .eq('is_active', true)
-          .single();
-
-        if (memberError) {
-          setError(memberError.message);
-          return;
-        }
-
-        if (data?.organizations) {
-          setOrg(data.organizations as unknown as Organization);
-        }
+        const data = await res.json();
+        setOrg(data.org ?? null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
       } finally {
