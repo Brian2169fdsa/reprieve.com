@@ -5,16 +5,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
-}
-
 type PasswordStrength = 'weak' | 'medium' | 'strong';
 
 function getPasswordStrength(password: string): PasswordStrength {
@@ -76,36 +66,25 @@ export default function SignupPage() {
       return;
     }
 
-    const userId = signUpData.user.id;
-
     // Profile is auto-created by the handle_new_user trigger in the database.
-    // Proceed directly to org creation.
-
-    // 2. Create organization
-    const slug = slugify(orgName) || `org-${Date.now()}`;
-    const { data: orgData, error: orgError } = await supabase
-      .from('organizations')
-      .insert({ name: orgName, slug })
-      .select('id')
-      .single();
-
-    if (orgError || !orgData) {
-      setError('Account created but organization setup failed. Please contact support.');
-      setLoading(false);
-      return;
-    }
-
-    // 3. Link user to org as admin
-    const { error: memberError } = await supabase.from('org_members').insert({
-      org_id: orgData.id,
-      user_id: userId,
-      role: 'admin',
+    // Create org via API route which uses service-role key (bypasses RLS,
+    // works even when email confirmation is required and session isn't active yet).
+    const res = await fetch('/api/setup-org', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orgName }),
     });
+    const orgResult = await res.json();
 
-    if (memberError) {
-      setError('Organization created but membership setup failed. Please contact support.');
-      setLoading(false);
-      return;
+    if (!res.ok) {
+      // Non-fatal: account exists, user can create org from Settings
+      if (res.status === 409) {
+        // Already has an org — just navigate
+      } else {
+        setError(`Account created! But org setup failed: ${orgResult.error ?? 'unknown error'}. Go to Settings to finish setup.`);
+        setLoading(false);
+        return;
+      }
     }
 
     router.push('/dashboard');
