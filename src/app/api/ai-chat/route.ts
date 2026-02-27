@@ -4,6 +4,43 @@ import { NextRequest, NextResponse } from 'next/server';
 // import { anthropic } from '@ai-sdk/anthropic';
 // import { generateText } from 'ai';
 
+// ── Calendar / checkpoint-specific insight responses ───────────────────────
+// These are returned when the checkpoint popover requests an AI insight
+// for a specific checkpoint title + standard + status.
+// The compliance_monitor agent handles these via keyword matching below.
+const CHECKPOINT_INSIGHTS: Record<string, string> = {
+  'oig exclusion':
+    'OIG exclusion screening is a monthly regulatory requirement. Verify all current staff and contractors against the OIG LEIE database and document the results with a dated screenshot. Any match requires immediate HR escalation.',
+  'hipaa':
+    'HIPAA checkpoints require documented evidence of the specific activity — screenshots, logs, or signed records. Incomplete attestation without evidence is a compliance gap that survives audits poorly.',
+  'fire drill':
+    'Fire drill documentation must include the date, time, staff present, any deficiencies noted, and corrective actions taken. A photo of the log board or a completed drill form qualifies as evidence.',
+  'credential':
+    'Credential verification requires current license copies, primary source verification results, and expiration date tracking. AHCCCS requires credentials verified before first patient contact and at each renewal.',
+  'medication':
+    'Medication count and storage checks need a log signed by two staff members. Temperature logs for refrigerated medications must be continuous — a single missing day can trigger a regulatory citation.',
+  'incident':
+    'Incident reports must be completed within 24 hours of the event. Late filing is independently cited as a deficiency regardless of the incident outcome. Attach the completed report as evidence.',
+  'training':
+    'Staff training records must show completion date, trainer name, topic covered, and staff signature. AHCCCS requires training verification at hire and annually. Upload the sign-in sheet or LMS completion certificate.',
+  'chart audit':
+    'Chart audits should sample at least 10% of active records or a minimum of 5 charts. Document the audit tool used, scores per domain, and any corrective action plans generated.',
+  'safety inspection':
+    'Physical safety inspections require a completed checklist covering exits, fire suppression, sharps disposal, and hazardous materials storage. Photo evidence of corrected deficiencies strengthens the audit record.',
+  'grievance':
+    'Grievance logs must be reviewed monthly and show that each complaint received a timely response. AHCCCS requires resolution documentation within 45 days for standard grievances.',
+  'treatment plan':
+    'Treatment plans must be reviewed and updated per program frequency requirements — typically every 30 days for IOP and every 60–90 days for residential. Missing signature dates are the most common audit finding.',
+  'background check':
+    'Background check audits verify that checks were completed prior to hire, meet the statutory lookback period, and are renewed per AHCCCS schedule. Fingerprint clearance cards must be on file for all clinical staff.',
+  'telehealth':
+    'Telehealth compliance requires documented informed consent for virtual sessions, HIPAA-compliant platform use, and verification that the client is in a private location. Keep platform audit logs as evidence.',
+  'capa':
+    'CAPA follow-up reviews should verify that corrective actions were implemented as planned, that root cause analysis is documented, and that the issue has not recurred. Closed CAPAs need a verified-by signature.',
+  'default':
+    'This checkpoint documents a required compliance activity. Ensure the test procedure has been followed completely, required evidence has been uploaded, and the attestation reflects the actual outcome — not what you wish it were.',
+};
+
 const AGENT_RESPONSES: Record<string, Record<string, string>> = {
   policy_guardian: {
     default:
@@ -55,9 +92,33 @@ const AGENT_RESPONSES: Record<string, Record<string, string>> = {
   },
 };
 
+function getCheckpointInsight(message: string): string {
+  const lower = message.toLowerCase();
+  for (const [keyword, insight] of Object.entries(CHECKPOINT_INSIGHTS)) {
+    if (keyword !== 'default' && lower.includes(keyword)) return insight;
+  }
+  return CHECKPOINT_INSIGHTS.default;
+}
+
 function getResponse(agent: string, message: string): string {
   const agentResponses = AGENT_RESPONSES[agent] ?? AGENT_RESPONSES.policy_guardian;
   const lower = message.toLowerCase();
+
+  // ── Calendar / checkpoint popover insight queries ──────────────────────
+  // Pattern: "Brief insight for {standard} checkpoint: "{title}" (status: {status})"
+  if (lower.includes('brief insight') && lower.includes('checkpoint')) {
+    return getCheckpointInsight(message);
+  }
+
+  // ── Create checkpoint intent (AI can suggest creating a checkpoint) ────
+  if (lower.includes('create') && lower.includes('checkpoint')) {
+    return 'To create a new checkpoint, click any day on the calendar and the checkpoint panel will open in create mode. Select the relevant control, assign it to a staff member, set the due date, and save. The AI Compliance Monitor will automatically include it in the monthly summary and send reminders to the assignee.';
+  }
+
+  // ── Calendar-specific queries ──────────────────────────────────────────
+  if (lower.includes('calendar') || lower.includes('schedule') || lower.includes('due this') || lower.includes('what is due')) {
+    return "Here's what's on the compliance calendar for this month:\n\n- **2 checkpoints** are overdue — OIG Exclusion Screening and CAPA Follow-Up Review\n- **4 checkpoints** are due this week with no evidence uploaded yet\n- **18 of 28** checkpoints are completed for the month\n\nI recommend prioritizing the overdue items immediately. Click on the flagged days (highlighted in red) to open the checkpoint panel and upload evidence.";
+  }
 
   // Keyword matching per agent
   if (agent === 'policy_guardian') {
