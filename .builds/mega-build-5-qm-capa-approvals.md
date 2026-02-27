@@ -1,5 +1,52 @@
 Read CLAUDE.md first. Your job is to make the QM Workbench, CAPA management, and Pending Approvals pages fully functional with real Supabase data, cross-linked to the calendar, and with rich interactive popovers.
 
+INSTALL FIRST:
+```
+npm install recharts
+npx shadcn@latest add @diceui/kanban --yes
+```
+
+DICEUI KANBAN — This installs via the shadcn CLI (copy-paste approach, same as shadcn/ui components). It copies Kanban component source into src/components/ui/kanban.tsx and installs @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/modifiers, @dnd-kit/utilities as dependencies.
+
+Usage pattern for Kanban board:
+```tsx
+import {
+  Kanban, KanbanBoard, KanbanColumn, KanbanColumnHandle,
+  KanbanItem, KanbanItemHandle, KanbanOverlay,
+} from "@/components/ui/kanban"
+
+// value = Record<string, CAPAItem[]> mapping column IDs to CAPA arrays
+const [columns, setColumns] = useState<Record<string, CAPAItem[]>>({
+  open: [...],
+  in_progress: [...],
+  pending_verification: [...],
+  closed: [...],
+})
+
+<Kanban value={columns} onValueChange={setColumns} getItemValue={(item) => item.id}>
+  <KanbanBoard>
+    {Object.entries(columns).map(([columnId, items]) => (
+      <KanbanColumn key={columnId} value={columnId}>
+        <KanbanColumnHandle>{columnLabel}</KanbanColumnHandle>
+        {items.map((item) => (
+          <KanbanItem key={item.id} value={item.id}>
+            <KanbanItemHandle />
+            {/* CAPA card content */}
+          </KanbanItem>
+        ))}
+      </KanbanColumn>
+    ))}
+  </KanbanBoard>
+  <KanbanOverlay />
+</Kanban>
+```
+
+If the @diceui/kanban shadcn add command fails, FALL BACK to installing @dnd-kit directly:
+```
+npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
+```
+Then build a simple Kanban board component manually using DndContext, SortableContext, useSortable from @dnd-kit.
+
 ONLY touch these files:
 - src/app/(portal)/qm/page.tsx (REWRITE — currently 120 lines, hardcoded metadata)
 - src/app/(portal)/qm/meetings/[id]/page.tsx (REWRITE — currently 189 lines, seed only)
@@ -91,6 +138,20 @@ If queries return empty, seed a complete QM meeting for current month:
 ## CAPA LIST (capa/page.tsx) — ENHANCE
 
 ### Remove ALL seed data fallback. Only use real Supabase queries.
+
+### Add Kanban Board View Toggle
+Add a view toggle at the top: "Table" | "Board" (like the calendar's Calendar|List toggle).
+- Table view: the enhanced table described below
+- Board view: a Kanban board using @diceui/kanban (or @dnd-kit fallback) with 4 columns:
+  - **Open** (yellow header accent) — CAPAs with status='open'
+  - **In Progress** (blue header accent) — status='in_progress'
+  - **Pending Verification** (purple header accent) — status='pending_verification'
+  - **Closed** (green header accent) — status='closed'
+- Each CAPA card in the board shows: title, severity badge, owner name, due date, days open
+- Dragging a card between columns updates the CAPA status in Supabase and writes to audit_log
+- Overdue CAPAs show a red border on their card
+- Column headers show count of items in each column
+- "New CAPA" button at top of "Open" column
 
 ### Build "New CAPA" Modal:
 When "+ New CAPA" button is clicked, show modal with:
