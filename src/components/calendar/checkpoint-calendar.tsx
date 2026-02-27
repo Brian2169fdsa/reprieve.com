@@ -122,8 +122,10 @@ export default function CheckpointCalendar() {
   const [sortCol, setSortCol] = useState<"day" | "label" | "standard" | "assignedTo" | "status">("day")
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
 
-  const { org } = useOrg()
+  const { org, isLoading: orgLoading } = useOrg()
   const isCurrentMonth = viewYear === TODAY_YEAR && viewMonth === TODAY_MONTH
+  // Show setup modal when a day is clicked but org isn't loaded yet
+  const [showNoOrgModal, setShowNoOrgModal] = useState(false)
 
   // ── Get current user ─────────────────────────────────────────────────
   useEffect(() => {
@@ -289,6 +291,7 @@ export default function CheckpointCalendar() {
   }
 
   function handleDayClick(day: number) {
+    if (!org?.id) { setShowNoOrgModal(true); return }
     setPopoverDay(day)
   }
 
@@ -330,14 +333,12 @@ export default function CheckpointCalendar() {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button
-            onClick={() => setPopoverDay(-1)}
-            disabled={!org?.id}
+            onClick={() => { if (!org?.id) { setShowNoOrgModal(true); return } setPopoverDay(-1) }}
             style={{
               display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
-              background: !org?.id ? "#E8E8E8" : "#fff",
-              color: !org?.id ? "#A3A3A3" : "#2A8BA8",
+              background: "#fff", color: "#2A8BA8",
               border: "1px solid #E8E8E8", borderRadius: "6px", fontSize: "13px", fontWeight: 600,
-              cursor: !org?.id ? "not-allowed" : "pointer",
+              cursor: "pointer",
             }}
           >
             <Plus size={14} /> Add Checkpoint
@@ -657,6 +658,54 @@ export default function CheckpointCalendar() {
           </div>
           <div style={{ fontSize: "12px", color: "#737373", marginLeft: "auto" }}>
             Click any day to view or add checkpoints
+          </div>
+        </div>
+      )}
+
+      {/* ── No-org setup modal ───────────────────────────── */}
+      {showNoOrgModal && (
+        <div
+          onClick={() => setShowNoOrgModal(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 997 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: "#fff", borderRadius: "12px", padding: "28px 32px", maxWidth: 420, width: "100%", margin: "0 16px", boxShadow: "0 20px 60px rgba(0,0,0,0.18)" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+              <h3 style={{ fontFamily: "var(--font-source-serif-4, serif)", fontSize: "18px", fontWeight: 700, color: "#171717", margin: 0 }}>
+                Organization Setup Required
+              </h3>
+              <button onClick={() => setShowNoOrgModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#A3A3A3", padding: 0, display: "flex" }}>
+                <X size={18} />
+              </button>
+            </div>
+            <p style={{ fontSize: "14px", color: "#525252", lineHeight: 1.6, marginBottom: 20 }}>
+              {orgLoading
+                ? "Loading your organization…"
+                : "Your account isn't linked to an organization yet. This usually means the signup didn't complete fully."}
+            </p>
+            {!orgLoading && (
+              <p style={{ fontSize: "13px", color: "#737373", lineHeight: 1.6, marginBottom: 24 }}>
+                To fix this: go to <strong>Settings → Organization</strong> to complete setup, or sign out and create a new account.
+              </p>
+            )}
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setShowNoOrgModal(false)}
+                style={{ padding: "8px 18px", borderRadius: "6px", border: "1px solid #E8E8E8", background: "#fff", fontSize: "13px", fontWeight: 600, color: "#525252", cursor: "pointer" }}
+              >
+                Close
+              </button>
+              {!orgLoading && (
+                <a
+                  href="/settings"
+                  style={{ padding: "8px 18px", borderRadius: "6px", border: "none", background: "#2A8BA8", fontSize: "13px", fontWeight: 600, color: "#fff", cursor: "pointer", textDecoration: "none" }}
+                >
+                  Go to Settings
+                </a>
+              )}
+            </div>
           </div>
         </div>
       )}
