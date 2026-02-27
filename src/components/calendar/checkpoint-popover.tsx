@@ -446,8 +446,8 @@ export default function CheckpointPopover({
     try {
       const supabase = createClient()
       for (const file of Array.from(files)) {
-        const path = await uploadEvidence(file, orgId, detail.id)
-        if (path) {
+        const { path, error: uploadErr } = await uploadEvidence(orgId, detail.id, file)
+        if (!uploadErr && path) {
           await supabase.from("evidence").insert({
             org_id: orgId,
             checkpoint_id: detail.id,
