@@ -2,8 +2,30 @@ Read CLAUDE.md first. Your job is to completely rebuild the dashboard page and a
 
 INSTALL FIRST (run these before any code changes):
 ```
-npm install recharts tremor-raw @react-pdf/renderer sonner
+npm install recharts tailwind-variants @remixicon/react sonner
 npx shadcn@latest add chart progress avatar badge card --yes
+```
+
+TREMOR RAW CHARTS — Copy-paste approach (NOT npm install):
+Tremor Raw is a copy-paste component library like shadcn/ui. It works with Tailwind v4.
+Go to https://tremor.so/docs/visualizations/spark-chart and copy the SparkAreaChart, SparkBarChart, SparkLineChart component source code into src/components/ui/spark-chart.tsx.
+Go to https://tremor.so/docs/visualizations/area-chart and copy AreaChart into src/components/ui/tremor-area-chart.tsx.
+Go to https://tremor.so/docs/visualizations/progress-circle and copy ProgressCircle into src/components/ui/progress-circle.tsx.
+Go to https://tremor.so/docs/ui/tracker and copy Tracker into src/components/ui/tracker.tsx.
+
+If the copy-paste approach causes issues with Tailwind v4, FALL BACK to building the sparklines and mini-charts directly with recharts (which is already installed). Use recharts ResponsiveContainer + LineChart/AreaChart with very small dimensions (h-8 w-20) for KPI sparklines. This is the safer approach and should be tried first.
+
+Usage pattern for recharts sparkline:
+```tsx
+import { ResponsiveContainer, AreaChart, Area } from "recharts"
+// Mini sparkline inside a stat card
+<div style={{ width: 80, height: 32 }}>
+  <ResponsiveContainer width="100%" height="100%">
+    <AreaChart data={trendData}>
+      <Area type="monotone" dataKey="score" stroke="#16A34A" fill="#DCFCE7" strokeWidth={1.5} />
+    </AreaChart>
+  </ResponsiveContainer>
+</div>
 ```
 
 ONLY touch these files (create new ones as needed within this list):

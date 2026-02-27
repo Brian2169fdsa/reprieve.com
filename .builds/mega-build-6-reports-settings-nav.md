@@ -2,8 +2,55 @@ Read CLAUDE.md first. Your job is to build the Reports page with real analytics 
 
 INSTALL FIRST:
 ```
-npm install recharts @react-pdf/renderer
+npm install recharts @react-pdf/renderer tailwind-variants @remixicon/react
 npx shadcn@latest add chart tabs select dialog sheet --yes
+```
+
+TREMOR RAW CHARTS — Copy-paste approach (like shadcn/ui, NOT npm install):
+Tremor Raw works with Tailwind v4. Copy component source code from tremor.so docs into your project.
+
+Charts to copy from https://tremor.so/docs:
+- AreaChart → src/components/ui/tremor-area-chart.tsx (for compliance trend line chart)
+- BarChart → src/components/ui/tremor-bar-chart.tsx (for checkpoints by standard)
+- DonutChart → src/components/ui/tremor-donut-chart.tsx (for findings by severity pie)
+- SparkAreaChart → src/components/ui/spark-chart.tsx (for KPI card sparklines)
+- ProgressCircle → src/components/ui/progress-circle.tsx (for circular progress indicators)
+- Tracker → src/components/ui/tracker.tsx (for status tracking grids)
+
+These components use recharts under the hood, which is already installed.
+
+IMPORTANT: If copying Tremor Raw components causes Tailwind v4 compatibility issues, FALL BACK to using recharts directly. recharts provides all the chart types you need:
+- LineChart / AreaChart (for compliance trends)
+- BarChart (for checkpoints by standard — use stacked bars)
+- PieChart (for findings severity donut)
+- ResponsiveContainer wraps all charts for auto-sizing
+
+Recharts usage pattern (preferred fallback):
+```tsx
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
+
+<ResponsiveContainer width="100%" height={300}>
+  <AreaChart data={trendData}>
+    <CartesianGrid strokeDasharray="3 3" stroke="#E8E8E8" />
+    <XAxis dataKey="period" tick={{ fontSize: 12, fill: "#737373" }} />
+    <YAxis tick={{ fontSize: 12, fill: "#737373" }} domain={[0, 100]} />
+    <Tooltip />
+    <Legend />
+    <Area type="monotone" dataKey="overall" name="Overall" stroke="#2A8BA8" fill="#E8F6FA" />
+    <Area type="monotone" dataKey="checkpoint" name="Checkpoints" stroke="#16A34A" fill="#F0FDF4" />
+  </AreaChart>
+</ResponsiveContainer>
+```
+
+For KPI sparklines inside stat cards, use tiny recharts:
+```tsx
+<div style={{ width: 80, height: 32 }}>
+  <ResponsiveContainer width="100%" height="100%">
+    <AreaChart data={miniData}>
+      <Area type="monotone" dataKey="v" stroke="#16A34A" fill="#DCFCE7" strokeWidth={1.5} dot={false} />
+    </AreaChart>
+  </ResponsiveContainer>
+</div>
 ```
 
 ONLY touch these files (create if needed):
