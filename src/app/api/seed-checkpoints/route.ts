@@ -270,19 +270,21 @@ export async function POST() {
 
     const orgId = membership.org_id;
 
-    // Idempotency: check if controls already seeded
-    const { data: existing } = await admin
-      .from('controls')
-      .select('id')
-      .eq('org_id', orgId)
-      .eq('code', 'GOV-QM-001')
-      .maybeSingle();
+    // Idempotency: check if CHECKPOINTS are already seeded (not just controls,
+    // so a partial failure — controls created, checkpoints failed — can be retried)
+    const { count: checkpointCount } = await admin
+      .from('checkpoints')
+      .select('id', { count: 'exact', head: true })
+      .eq('org_id', orgId);
 
-    if (existing) {
-      return NextResponse.json({ error: 'Compliance checkpoints already loaded for this organization.' }, { status: 409 });
+    if (checkpointCount && checkpointCount > 0) {
+      return NextResponse.json(
+        { error: 'Compliance checkpoints are already loaded for this organization.' },
+        { status: 409 }
+      );
     }
 
-    // ── 1. Create controls ────────────────────────────────────────────────
+    // ── 1. Upsert controls (idempotent — safe to re-run) ─────────────────
     const controlRows = CONTROLS.map(c => ({
       org_id: orgId,
       code: c.code,
@@ -296,25 +298,19 @@ export async function POST() {
       is_active: true,
     }));
 
-    const { data: insertedControls, error: controlsError } = await admin
+    const { data: upsertedControls, error: controlsError } = await admin
       .from('controls')
-      .insert(controlRows)
+      .upsert(controlRows, { onConflict: 'org_id,code', ignoreDuplicates: false })
       .select('id, code');
 
-    if (controlsError || !insertedControls) {
+    if (controlsError || !upsertedControls) {
       return NextResponse.json({ error: `Failed to create controls: ${controlsError?.message}` }, { status: 500 });
     }
 
     // Build code → id map
     const codeToId: Record<string, string> = {};
-    for (const c of insertedControls) {
+    for (const c of upsertedControls) {
       codeToId[c.code] = c.id;
-    }
-
-    // Build code → assignee_name map from CONTROLS
-    const codeToAssignee: Record<string, string> = {};
-    for (const c of CONTROLS) {
-      codeToAssignee[c.code] = c.assignee_name;
     }
 
     // ── 2. Create checkpoint instances ────────────────────────────────────
@@ -333,12 +329,19 @@ export async function POST() {
       .insert(checkpointRows);
 
     if (checkpointsError) {
-      return NextResponse.json({ error: `Failed to create checkpoints: ${checkpointsError.message}` }, { status: 500 });
+      // Provide a clear hint if the column is missing
+      const hint = checkpointsError.message.includes('assignee_name')
+        ? ' Run this in Supabase SQL Editor: ALTER TABLE public.checkpoints ADD COLUMN IF NOT EXISTS assignee_name TEXT;'
+        : '';
+      return NextResponse.json(
+        { error: `Failed to create checkpoints: ${checkpointsError.message}.${hint}` },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
       success: true,
-      controls: insertedControls.length,
+      controls: upsertedControls.length,
       checkpoints: checkpointRows.length,
     });
   } catch (err) {

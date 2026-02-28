@@ -278,15 +278,15 @@ export default function CheckpointPopover({
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchControls = useCallback(async () => {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from("controls")
-      .select("id, code, title, standard, test_procedure, required_evidence, frequency")
-      .eq("org_id", orgId)
-      .eq("is_active", true)
-      .order("standard")
-    setControls((data as unknown as ControlOption[]) ?? [])
-  }, [orgId])
+    try {
+      const res = await fetch('/api/org/controls')
+      if (!res.ok) return
+      const data = await res.json()
+      setControls(data.controls ?? [])
+    } catch {
+      // non-fatal — dropdown stays empty
+    }
+  }, [])
 
   const fetchMembers = useCallback(async () => {
     const supabase = createClient()
