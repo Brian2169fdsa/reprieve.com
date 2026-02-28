@@ -284,33 +284,49 @@ export async function POST() {
       );
     }
 
-    // ── 1. Upsert controls (idempotent — safe to re-run) ─────────────────
-    const controlRows = CONTROLS.map(c => ({
-      org_id: orgId,
-      code: c.code,
-      title: c.title,
-      standard: c.standard,
-      category: c.category,
-      test_procedure: c.test_procedure,
-      required_evidence: c.required_evidence,
-      frequency: c.frequency,
-      default_owner_role: c.default_owner_role,
-      is_active: true,
-    }));
-
-    const { data: upsertedControls, error: controlsError } = await admin
+    // ── 1. Insert controls (idempotent — skip ones that already exist) ────────
+    // Fetch any controls already in the DB for this org
+    const { data: existingControls } = await admin
       .from('controls')
-      .upsert(controlRows, { onConflict: 'org_id,code', ignoreDuplicates: false })
-      .select('id, code');
+      .select('id, code')
+      .eq('org_id', orgId);
 
-    if (controlsError || !upsertedControls) {
-      return NextResponse.json({ error: `Failed to create controls: ${controlsError?.message}` }, { status: 500 });
+    const codeToId: Record<string, string> = {};
+    const existingCodes = new Set<string>();
+    for (const c of existingControls ?? []) {
+      codeToId[c.code] = c.id;
+      existingCodes.add(c.code);
     }
 
-    // Build code → id map
-    const codeToId: Record<string, string> = {};
-    for (const c of upsertedControls) {
-      codeToId[c.code] = c.id;
+    // Only insert controls that don't already exist
+    const newControlRows = CONTROLS
+      .filter(c => !existingCodes.has(c.code))
+      .map(c => ({
+        org_id: orgId,
+        code: c.code,
+        title: c.title,
+        standard: c.standard,
+        category: c.category,
+        test_procedure: c.test_procedure,
+        required_evidence: c.required_evidence,
+        frequency: c.frequency,
+        default_owner_role: c.default_owner_role,
+        is_active: true,
+      }));
+
+    if (newControlRows.length > 0) {
+      const { data: insertedControls, error: controlsError } = await admin
+        .from('controls')
+        .insert(newControlRows)
+        .select('id, code');
+
+      if (controlsError || !insertedControls) {
+        return NextResponse.json({ error: `Failed to create controls: ${controlsError?.message}` }, { status: 500 });
+      }
+
+      for (const c of insertedControls) {
+        codeToId[c.code] = c.id;
+      }
     }
 
     // ── 2. Create checkpoint instances ────────────────────────────────────
