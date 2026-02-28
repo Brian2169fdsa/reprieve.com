@@ -43,12 +43,16 @@ interface CheckpointDetail {
   attestation: string | null
   notes: string | null
   assigned_to: string | null
+  assignee_name: string | null
   completed_at: string | null
   control_id: string | null
   control: ControlOption | null
   assignee: { full_name: string; id: string } | null
   evidence: EvidenceItem[]
 }
+
+// Named team members that can be assigned without a user account
+const TEAM_MEMBERS = ['Emily', 'Wayne', 'Brian', 'Jericho'] as const
 
 export interface CalendarDayEvent {
   id: string
@@ -210,7 +214,7 @@ export default function CheckpointPopover({
   useEffect(() => {
     if (mode === "edit" && detail) {
       setFormControl(detail.control_id ?? "")
-      setFormAssignee(detail.assigned_to ?? "")
+      setFormAssignee(detail.assignee_name ?? detail.assigned_to ?? "")
       setFormDueDate(detail.due_date ?? "")
       setFormStatus(detail.status ?? "pending")
       setFormNotes(detail.notes ?? "")
@@ -229,7 +233,7 @@ export default function CheckpointPopover({
         .from("checkpoints")
         .select(`
           id, status, due_date, period, attestation, notes,
-          assigned_to, completed_at, control_id,
+          assigned_to, assignee_name, completed_at, control_id,
           control:controls!control_id(
             id, code, title, standard, test_procedure, required_evidence, frequency
           ),
@@ -253,6 +257,7 @@ export default function CheckpointPopover({
         attestation: data.attestation as string | null,
         notes: data.notes as string | null,
         assigned_to: data.assigned_to as string | null,
+        assignee_name: data.assignee_name as string | null,
         completed_at: data.completed_at as string | null,
         control_id: data.control_id as string | null,
         control: ctrl,
@@ -352,12 +357,14 @@ export default function CheckpointPopover({
           return
         }
         const period = getPeriodString(selectedYear, selectedMonth)
+        const isNameOnly = TEAM_MEMBERS.includes(formAssignee as typeof TEAM_MEMBERS[number])
         const { error } = await supabase.from("checkpoints").insert({
           org_id: orgId,
           control_id: formControl,
           period,
           status: "pending",
-          assigned_to: formAssignee || null,
+          assigned_to: isNameOnly ? null : (formAssignee || null),
+          assignee_name: isNameOnly ? formAssignee : null,
           due_date: formDueDate,
           notes: formNotes.trim() || null,
         })
@@ -373,10 +380,12 @@ export default function CheckpointPopover({
         })
 
       } else if (mode === "edit" && detail) {
+        const isNameOnly = TEAM_MEMBERS.includes(formAssignee as typeof TEAM_MEMBERS[number])
         const { error } = await supabase
           .from("checkpoints")
           .update({
-            assigned_to: formAssignee || null,
+            assigned_to: isNameOnly ? null : (formAssignee || null),
+            assignee_name: isNameOnly ? formAssignee : null,
             due_date: formDueDate,
             status: formStatus,
             notes: formNotes.trim() || null,
@@ -709,7 +718,7 @@ export default function CheckpointPopover({
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: "13px", color: "#262626", fontWeight: 500 }}>
                         <User size={12} color="#A3A3A3" />
-                        {detail.assignee?.full_name ?? "Unassigned"}
+                        {detail.assignee_name ?? detail.assignee?.full_name ?? "Unassigned"}
                       </div>
                     </div>
                     <div>
@@ -799,11 +808,20 @@ export default function CheckpointPopover({
                         }}
                       >
                         <option value="">Unassigned</option>
-                        {members.map(m => (
-                          <option key={m.user_id} value={m.user_id}>
-                            {m.full_name} · {m.role}
-                          </option>
-                        ))}
+                        <optgroup label="Team">
+                          {TEAM_MEMBERS.map(name => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                        </optgroup>
+                        {members.length > 0 && (
+                          <optgroup label="Portal Users">
+                            {members.map(m => (
+                              <option key={m.user_id} value={m.user_id}>
+                                {m.full_name} · {m.role}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
                       </select>
                     </div>
 

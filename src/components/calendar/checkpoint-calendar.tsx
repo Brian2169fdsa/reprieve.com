@@ -115,6 +115,11 @@ export default function CheckpointCalendar() {
   const [generateMsg, setGenerateMsg]     = useState<string | null>(null)
   const [generateError, setGenerateError] = useState<string | null>(null)
 
+  // Seed compliance data
+  const [seeding, setSeeding]       = useState(false)
+  const [seedMsg, setSeedMsg]       = useState<string | null>(null)
+  const [seedError, setSeedError]   = useState<string | null>(null)
+
   // Popover state — which day is selected (null = closed)
   const [popoverDay, setPopoverDay] = useState<number | null>(null)
 
@@ -148,7 +153,7 @@ export default function CheckpointCalendar() {
       const { data, error } = await supabase
         .from("checkpoints")
         .select(`
-          id, status, due_date, period, assigned_to,
+          id, status, due_date, period, assigned_to, assignee_name,
           control:controls!control_id(title, code, standard),
           assignee:profiles!assigned_to(full_name)
         `)
@@ -175,9 +180,9 @@ export default function CheckpointCalendar() {
           status:     (row.status as CheckpointStatus) ?? "pending",
           standard:   ctrl?.standard ?? "",
           control:    ctrl?.code ?? "",
-          assignedTo: assignee?.full_name ?? "Unassigned",
+          assignedTo: (row.assignee_name as string | null) ?? assignee?.full_name ?? "Unassigned",
           dueDate:    `${MONTH_NAMES[due.getMonth()].slice(0, 3)} ${due.getDate()}, ${due.getFullYear()}`,
-          isAI:       !(row.assigned_to),
+          isAI:       false,
           isMock:     false,
         }
       })
@@ -290,6 +295,27 @@ export default function CheckpointCalendar() {
     }
   }
 
+  async function handleSeed() {
+    setSeeding(true)
+    setSeedMsg(null)
+    setSeedError(null)
+    try {
+      const res = await fetch('/api/seed-checkpoints', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) {
+        setSeedError(data.error ?? 'Seed failed')
+      } else {
+        setSeedMsg(`Loaded ${data.checkpoints} checkpoints across 12 months.`)
+        setUsingMocks(false)
+        if (org?.id) fetchCheckpoints(org.id, viewYear, viewMonth)
+      }
+    } catch (err) {
+      setSeedError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setSeeding(false)
+    }
+  }
+
   function handleDayClick(day: number) {
     if (!org?.id) { setShowNoOrgModal(true); return }
     setPopoverDay(day)
@@ -332,6 +358,21 @@ export default function CheckpointCalendar() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
+          {usingMocks && org?.id && (
+            <button
+              onClick={handleSeed}
+              disabled={seeding}
+              style={{
+                display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
+                background: seeding ? "#A3A3A3" : "#16A34A",
+                color: "#fff", border: "none", borderRadius: "6px", fontSize: "13px", fontWeight: 600,
+                cursor: seeding ? "not-allowed" : "pointer",
+              }}
+            >
+              {seeding ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Plus size={14} />}
+              {seeding ? "Loading…" : "Load Compliance Checkpoints"}
+            </button>
+          )}
           <button
             onClick={() => { if (!org?.id) { setShowNoOrgModal(true); return } setPopoverDay(-1) }}
             style={{
@@ -365,8 +406,20 @@ export default function CheckpointCalendar() {
       {/* ── Banners ──────────────────────────────────────────── */}
       {usingMocks && (
         <div style={{ padding: "10px 14px", background: "#E8F6FA", border: "1px solid #B5E3F0", borderRadius: "6px", color: "#2A8BA8", fontSize: "13px", fontWeight: 500, marginBottom: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>Showing sample data. Generate checkpoints or click a day to add one.</span>
+          <span>Showing sample data. Click <strong>Load Compliance Checkpoints</strong> to populate your real schedule.</span>
           <button onClick={() => { setUsingMocks(false); setCheckpoints([]) }} style={{ background: "none", border: "none", cursor: "pointer", color: "#2A8BA8", fontSize: "18px", lineHeight: 1, padding: "0 0 0 12px" }}>×</button>
+        </div>
+      )}
+      {seedMsg && (
+        <div style={{ padding: "10px 14px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: "6px", color: "#15803D", fontSize: "13px", fontWeight: 500, marginBottom: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          {seedMsg}
+          <button onClick={() => setSeedMsg(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#15803D", fontSize: "18px", lineHeight: 1, padding: "0 0 0 12px" }}>×</button>
+        </div>
+      )}
+      {seedError && (
+        <div style={{ padding: "10px 14px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: "6px", color: "#DC2626", fontSize: "13px", fontWeight: 500, marginBottom: "16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          {seedError}
+          <button onClick={() => setSeedError(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#DC2626", fontSize: "18px", lineHeight: 1, padding: "0 0 0 12px" }}>×</button>
         </div>
       )}
       {generateMsg && (
