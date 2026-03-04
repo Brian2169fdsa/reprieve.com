@@ -16,6 +16,9 @@ export async function uploadEvidence(
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${checkpointId}/${timestamp}-${safeName}`;
 
+  // Ensure bucket exists (no-op if already created)
+  await supabase.storage.createBucket(bucket, { public: false }).catch(() => {});
+
   const { error } = await supabase.storage
     .from(bucket)
     .upload(path, file, {
@@ -84,6 +87,9 @@ export async function uploadPolicyDocument(
   const timestamp = Date.now();
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${policyId}/${timestamp}-${safeName}`;
+
+  // Ensure bucket exists (no-op if already created)
+  await supabase.storage.createBucket(bucket, { public: false }).catch(() => {});
 
   const { error } = await supabase.storage
     .from(bucket)
