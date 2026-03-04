@@ -35,26 +35,28 @@ interface MissingEvidence {
   controlTitle: string
   standard: string
   period: string
+  status: string
 }
 
 interface StandardGroup {
   standard: string
+  period: string
   items: EvidenceRow[]
   missing: MissingEvidence[]
 }
 
 // ── Constants ────────────────────────────────────────────
 
-const STANDARD_COLORS: Record<string, { accent: string; bg: string; text: string }> = {
-  OIG:        { accent: '#3BA7C9', bg: '#E8F6FA', text: '#0E7490' },
-  HIPAA:      { accent: '#7C3AED', bg: '#F5F3FF', text: '#6D28D9' },
-  AHCCCS:     { accent: '#16A34A', bg: '#F0FDF4', text: '#15803D' },
-  Safety:     { accent: '#D97706', bg: '#FFFBEB', text: '#B45309' },
-  Operations: { accent: '#737373', bg: '#F5F5F5', text: '#525252' },
-  HR:         { accent: '#DB2777', bg: '#FDF4FF', text: '#9333EA' },
-  TJC:        { accent: '#92400E', bg: '#FFF7ED', text: '#92400E' },
-  CARF:       { accent: '#4338CA', bg: '#EEF2FF', text: '#4338CA' },
-  Internal:   { accent: '#525252', bg: '#F5F5F5', text: '#525252' },
+const STANDARD_COLORS: Record<string, { accent: string; bg: string; text: string; icon: string }> = {
+  OIG:        { accent: '#3BA7C9', bg: '#E8F6FA', text: '#0E7490', icon: '🛡' },
+  HIPAA:      { accent: '#7C3AED', bg: '#F5F3FF', text: '#6D28D9', icon: '🔒' },
+  AHCCCS:     { accent: '#16A34A', bg: '#F0FDF4', text: '#15803D', icon: '📋' },
+  Safety:     { accent: '#D97706', bg: '#FFFBEB', text: '#B45309', icon: '⚠' },
+  Operations: { accent: '#737373', bg: '#F5F5F5', text: '#525252', icon: '⚙' },
+  HR:         { accent: '#DB2777', bg: '#FDF4FF', text: '#9333EA', icon: '👤' },
+  TJC:        { accent: '#92400E', bg: '#FFF7ED', text: '#92400E', icon: '🏥' },
+  CARF:       { accent: '#4338CA', bg: '#EEF2FF', text: '#4338CA', icon: '📊' },
+  Internal:   { accent: '#525252', bg: '#F5F5F5', text: '#525252', icon: '📁' },
 }
 
 const FILE_ICONS: Record<string, { label: string; bg: string; color: string }> = {
@@ -63,6 +65,71 @@ const FILE_ICONS: Record<string, { label: string; bg: string; color: string }> =
   video:    { label: 'VID', bg: '#F5F3FF', color: '#7C3AED' },
   document: { label: 'DOC', bg: '#F0FDF4', color: '#16A34A' },
 }
+
+// ── Demo data (shown when no real data exists) ───────────
+
+const DEMO_EVIDENCE: { standard: string; period: string; files: { name: string; type: string; date: string; size: number }[]; missing: { code: string; title: string }[] }[] = [
+  {
+    standard: 'AHCCCS',
+    period: '2026-03',
+    files: [
+      { name: 'chart-audit-scoring-mar2026.pdf', type: 'pdf', date: '2026-03-19', size: 245000 },
+      { name: 'deidentified-chart-sample.xlsx', type: 'document', date: '2026-03-19', size: 89000 },
+    ],
+    missing: [],
+  },
+  {
+    standard: 'HIPAA',
+    period: '2026-03',
+    files: [
+      { name: 'hipaa-risk-analysis-2026.pdf', type: 'pdf', date: '2026-03-10', size: 1200000 },
+      { name: 'vendor-baa-inventory.xlsx', type: 'document', date: '2026-03-10', size: 156000 },
+    ],
+    missing: [
+      { code: 'HIPAA-PRIV-001', title: 'Quarterly privacy & consent controls review' },
+    ],
+  },
+  {
+    standard: 'Safety',
+    period: '2026-03',
+    files: [
+      { name: 'workplace-violence-analysis-2026.pdf', type: 'pdf', date: '2026-03-10', size: 890000 },
+      { name: 'disaster-drill-signin-sheets.pdf', type: 'pdf', date: '2026-03-21', size: 340000 },
+      { name: 'drill-after-action-review.pdf', type: 'pdf', date: '2026-03-21', size: 210000 },
+    ],
+    missing: [
+      { code: 'EMER-READY-001', title: "Quarterly '2-hour readiness' document retrieval drill" },
+    ],
+  },
+  {
+    standard: 'Internal',
+    period: '2026-03',
+    files: [
+      { name: 'qm-pi-meeting-minutes-mar2026.pdf', type: 'pdf', date: '2026-03-12', size: 180000 },
+      { name: 'qm-attendance-sheet.pdf', type: 'pdf', date: '2026-03-12', size: 45000 },
+      { name: 'annual-qm-evaluation-2026.pdf', type: 'pdf', date: '2026-03-10', size: 520000 },
+    ],
+    missing: [],
+  },
+  {
+    standard: 'HR',
+    period: '2026-03',
+    files: [
+      { name: 'training-completion-report-mar2026.pdf', type: 'pdf', date: '2026-03-26', size: 310000 },
+    ],
+    missing: [
+      { code: 'WORK-COMP-001', title: 'Workforce: competency checklists needed' },
+    ],
+  },
+  {
+    standard: 'Operations',
+    period: '2026-03',
+    files: [],
+    missing: [
+      { code: 'BILL-INT-001', title: 'Billing/encounter integrity & timely filing' },
+    ],
+  },
+]
 
 // ── Helpers ──────────────────────────────────────────────
 
@@ -74,7 +141,6 @@ function formatFileSize(bytes: number | null): string {
 }
 
 function formatPeriod(period: string): string {
-  // "2026-02" → "Feb 2026", "2026-Q1" → "Q1 2026"
   if (period.includes('Q')) {
     const [year, q] = period.split('-')
     return `${q} ${year}`
@@ -82,6 +148,11 @@ function formatPeriod(period: string): string {
   const [year, month] = period.split('-')
   const date = new Date(Number(year), Number(month) - 1, 1)
   return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+}
+
+function shortDate(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 function getFileTypeFromName(name: string): string {
@@ -102,6 +173,9 @@ export default function EvidenceBinderPage() {
   const [missingEvidence, setMissingEvidence] = useState<MissingEvidence[]>([])
   const [activePeriod, setActivePeriod] = useState<string>('')
   const [exporting, setExporting] = useState(false)
+
+  // Detect if we should show demo data
+  const isDemo = evidenceRows.length === 0 && missingEvidence.length === 0 && !loading
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -154,7 +228,7 @@ export default function EvidenceBinderPage() {
         control:controls!control_id(id, code, title, standard)
       `)
       .eq('org_id', membership.org_id)
-      .in('status', ['passed', 'failed', 'in_progress', 'pending'])
+      .in('status', ['passed', 'failed', 'in_progress', 'pending', 'overdue'])
 
     const evidenceCheckpointIds = new Set((evidence ?? []).map(e => e.checkpoint_id).filter(Boolean))
     const missing: MissingEvidence[] = []
@@ -167,6 +241,7 @@ export default function EvidenceBinderPage() {
           controlTitle: ctrl.title,
           standard: ctrl.standard,
           period: cp.period,
+          status: cp.status,
         })
       }
     }
@@ -183,47 +258,78 @@ export default function EvidenceBinderPage() {
     })
     missing.forEach(m => allPeriods.add(m.period))
     const sorted = Array.from(allPeriods).sort().reverse()
-    setActivePeriod(sorted[0] ?? '2026-02')
+    setActivePeriod(sorted[0] ?? '2026-03')
     setLoading(false)
   }, [])
 
   useEffect(() => { loadData() }, [loadData])
 
-  // Compute available periods
+  // Compute available periods (real or demo)
   const periods = useMemo(() => {
+    if (isDemo) {
+      return [...new Set(DEMO_EVIDENCE.map(d => d.period))].sort().reverse()
+    }
     const set = new Set<string>()
     evidenceRows.forEach(r => {
       if (r.checkpoint?.period) set.add(r.checkpoint.period)
     })
     missingEvidence.forEach(m => set.add(m.period))
     if (set.size === 0) {
-      // Show current period even when empty
       const now = new Date()
       return [`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`]
     }
     return Array.from(set).sort().reverse()
-  }, [evidenceRows, missingEvidence])
+  }, [evidenceRows, missingEvidence, isDemo])
 
-  // Filter by active period and group by standard
+  // Build standard groups from real data
   const standardGroups: StandardGroup[] = useMemo(() => {
+    if (isDemo) {
+      // Build demo groups
+      return DEMO_EVIDENCE.filter(d => d.period === (activePeriod || '2026-03')).map(d => ({
+        standard: d.standard,
+        period: d.period,
+        items: d.files.map((f, i) => ({
+          id: `demo-${d.standard}-${i}`,
+          file_name: f.name,
+          file_path: '',
+          file_type: f.type,
+          file_size_bytes: f.size,
+          created_at: f.date,
+          uploaded_by: null,
+          checkpoint_id: null,
+          tags: {},
+        })),
+        missing: d.missing.map((m, i) => ({
+          checkpointId: `demo-missing-${d.standard}-${i}`,
+          controlCode: m.code,
+          controlTitle: m.title,
+          standard: d.standard,
+          period: d.period,
+          status: 'pending',
+        })),
+      })).sort((a, b) => a.standard.localeCompare(b.standard))
+    }
+
     const groups = new Map<string, StandardGroup>()
     const periodItems = evidenceRows.filter(r => r.checkpoint?.period === activePeriod)
     for (const item of periodItems) {
       const std = item.checkpoint?.control?.standard ?? 'Other'
-      if (!groups.has(std)) {
-        groups.set(std, { standard: std, items: [], missing: [] })
+      const key = `${std}-${activePeriod}`
+      if (!groups.has(key)) {
+        groups.set(key, { standard: std, period: activePeriod, items: [], missing: [] })
       }
-      groups.get(std)!.items.push(item)
+      groups.get(key)!.items.push(item)
     }
     const periodMissing = missingEvidence.filter(m => m.period === activePeriod)
     for (const m of periodMissing) {
-      if (!groups.has(m.standard)) {
-        groups.set(m.standard, { standard: m.standard, items: [], missing: [] })
+      const key = `${m.standard}-${activePeriod}`
+      if (!groups.has(key)) {
+        groups.set(key, { standard: m.standard, period: activePeriod, items: [], missing: [] })
       }
-      groups.get(m.standard)!.missing.push(m)
+      groups.get(key)!.missing.push(m)
     }
     return Array.from(groups.values()).sort((a, b) => a.standard.localeCompare(b.standard))
-  }, [evidenceRows, missingEvidence, activePeriod])
+  }, [evidenceRows, missingEvidence, activePeriod, isDemo])
 
   async function handleViewFile(item: EvidenceRow) {
     if (!orgId || !item.file_path) return
@@ -234,11 +340,9 @@ export default function EvidenceBinderPage() {
   async function handleExportBinder() {
     setExporting(true)
     try {
-      // Collect all evidence items for the period
       const allItems = standardGroups.flatMap(g => g.items)
       const allMissing = standardGroups.flatMap(g => g.missing)
 
-      // Build HTML manifest
       const rows = allItems.map(item => {
         const std = item.checkpoint?.control?.standard ?? '—'
         const code = item.checkpoint?.control?.code ?? '—'
@@ -303,6 +407,21 @@ export default function EvidenceBinderPage() {
 
   // ── Render ─────────────────────────────────────────────
 
+  // Period summary stats
+  const periodStats = useMemo(() => {
+    const allItems = standardGroups.flatMap(g => g.items)
+    const allMissing = standardGroups.flatMap(g => g.missing)
+    const totalCheckpoints = allItems.length + allMissing.length
+    const coveragePct = totalCheckpoints > 0 ? Math.round((allItems.length / totalCheckpoints) * 100) : 0
+    const standardSet = new Set(standardGroups.map(g => g.standard))
+    return {
+      files: allItems.length,
+      missing: allMissing.length,
+      coverage: coveragePct,
+      standards: standardSet.size,
+    }
+  }, [standardGroups])
+
   return (
     <div style={{ padding: '32px' }}>
       {/* Page Header */}
@@ -317,25 +436,50 @@ export default function EvidenceBinderPage() {
         </div>
         <button
           onClick={handleExportBinder}
-          disabled={exporting}
+          disabled={exporting || isDemo}
+          title={isDemo ? 'Export available when real evidence is uploaded' : undefined}
           style={{
             padding: '9px 18px',
-            background: exporting ? '#A3A3A3' : '#2A8BA8',
+            background: exporting || isDemo ? '#A3A3A3' : '#2A8BA8',
             color: '#fff',
             border: 'none',
             borderRadius: '6px',
             fontSize: '13px',
             fontWeight: 600,
-            cursor: exporting ? 'not-allowed' : 'pointer',
+            cursor: exporting || isDemo ? 'not-allowed' : 'pointer',
             fontFamily: 'inherit',
             display: 'inline-flex',
             alignItems: 'center',
             gap: '6px',
           }}
         >
-          {exporting ? '⏳ Preparing binder…' : '📥 Export Binder'}
+          {exporting ? 'Preparing binder...' : 'Export Binder'}
         </button>
       </div>
+
+      {/* Demo Banner */}
+      {isDemo && (
+        <div style={{
+          background: '#E8F6FA',
+          border: '1px solid #B8E3F0',
+          borderRadius: '8px',
+          padding: '12px 16px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+        }}>
+          <span style={{ fontSize: '15px', flexShrink: 0 }}>ℹ</span>
+          <div style={{ flex: 1 }}>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: '#0E7490' }}>
+              Sample Data
+            </span>
+            <span style={{ fontSize: '13px', color: '#0E7490', marginLeft: '8px' }}>
+              — This is demo evidence. Upload real files via checkpoint pages to replace it.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -371,69 +515,49 @@ export default function EvidenceBinderPage() {
         })}
       </div>
 
-      {/* Period Summary */}
-      {!loading && (evidenceRows.length > 0 || missingEvidence.length > 0) && (() => {
-        const periodItems = evidenceRows.filter(r => r.checkpoint?.period === activePeriod)
-        const periodMissing = missingEvidence.filter(m => m.period === activePeriod)
-        const totalCheckpoints = periodItems.length + periodMissing.length
-        const coveragePct = totalCheckpoints > 0 ? Math.round((periodItems.length / totalCheckpoints) * 100) : 0
-        const standardSet = new Set<string>()
-        periodItems.forEach(r => { if (r.checkpoint?.control?.standard) standardSet.add(r.checkpoint.control.standard) })
-        periodMissing.forEach(m => standardSet.add(m.standard))
-
-        return (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px', marginBottom: '20px' }}>
-            {[
-              { label: 'Evidence Files', value: String(periodItems.length), color: '#2A8BA8', bg: '#E8F6FA' },
-              { label: 'Missing Evidence', value: String(periodMissing.length), color: periodMissing.length > 0 ? '#DC2626' : '#16A34A', bg: periodMissing.length > 0 ? '#FEF2F2' : '#F0FDF4' },
-              { label: 'Coverage', value: `${coveragePct}%`, color: coveragePct >= 80 ? '#16A34A' : coveragePct >= 50 ? '#D97706' : '#DC2626', bg: coveragePct >= 80 ? '#F0FDF4' : coveragePct >= 50 ? '#FFFBEB' : '#FEF2F2' },
-              { label: 'Standards', value: String(standardSet.size), color: '#525252', bg: '#F5F5F5' },
-            ].map(({ label, value, color, bg }) => (
-              <div key={label} style={{ padding: '14px 12px', background: bg, borderRadius: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: '24px', fontWeight: 700, color }}>{value}</div>
-                <div style={{ fontSize: '11px', color: '#737373', fontWeight: 500, marginTop: '2px' }}>{label}</div>
-              </div>
-            ))}
-          </div>
-        )
-      })()}
+      {/* Period Summary Stats */}
+      {!loading && standardGroups.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+          {[
+            { label: 'Evidence Files', value: String(periodStats.files), color: '#2A8BA8', bg: '#E8F6FA' },
+            { label: 'Missing Evidence', value: String(periodStats.missing), color: periodStats.missing > 0 ? '#DC2626' : '#16A34A', bg: periodStats.missing > 0 ? '#FEF2F2' : '#F0FDF4' },
+            { label: 'Coverage', value: `${periodStats.coverage}%`, color: periodStats.coverage >= 80 ? '#16A34A' : periodStats.coverage >= 50 ? '#D97706' : '#DC2626', bg: periodStats.coverage >= 80 ? '#F0FDF4' : periodStats.coverage >= 50 ? '#FFFBEB' : '#FEF2F2' },
+            { label: 'Standards', value: String(periodStats.standards), color: '#525252', bg: '#F5F5F5' },
+          ].map(({ label, value, color, bg }) => (
+            <div key={label} style={{ padding: '14px 12px', background: bg, borderRadius: '8px', textAlign: 'center' }}>
+              <div style={{ fontSize: '24px', fontWeight: 700, color }}>{value}</div>
+              <div style={{ fontSize: '11px', color: '#737373', fontWeight: 500, marginTop: '2px' }}>{label}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Missing Evidence Alert */}
-      {!loading && (() => {
-        const periodMissing = missingEvidence.filter(m => m.period === activePeriod)
-        if (periodMissing.length === 0) return null
-        return (
-          <div style={{
-            background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px',
-            padding: '12px 16px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px',
-          }}>
-            <span style={{ fontSize: '16px', flexShrink: 0 }}>⚠</span>
-            <div style={{ flex: 1 }}>
-              <span style={{ fontSize: '13px', fontWeight: 600, color: '#B91C1C' }}>
-                {periodMissing.length} checkpoint{periodMissing.length !== 1 ? 's' : ''} missing evidence
-              </span>
-              <span style={{ fontSize: '13px', color: '#DC2626', marginLeft: '8px' }}>
-                — Upload via the Calendar checkpoint popover
-              </span>
-            </div>
+      {!loading && periodStats.missing > 0 && !isDemo && (
+        <div style={{
+          background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px',
+          padding: '12px 16px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px',
+        }}>
+          <span style={{ fontSize: '16px', flexShrink: 0 }}>!</span>
+          <div style={{ flex: 1 }}>
+            <span style={{ fontSize: '13px', fontWeight: 600, color: '#B91C1C' }}>
+              {periodStats.missing} checkpoint{periodStats.missing !== 1 ? 's' : ''} missing evidence
+            </span>
+            <span style={{ fontSize: '13px', color: '#DC2626', marginLeft: '8px' }}>
+              — Upload via the Calendar checkpoint popover
+            </span>
           </div>
-        )
-      })()}
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (
         <div style={{ padding: '48px', textAlign: 'center', color: '#A3A3A3', fontSize: '14px' }}>
-          Loading evidence…
+          Loading evidence...
         </div>
       )}
 
       {/* Standards Grid */}
-      {!loading && standardGroups.length === 0 && (
-        <div style={{ padding: '48px', textAlign: 'center', color: '#A3A3A3', fontSize: '14px', background: '#fff', border: '1px solid #E8E8E8', borderRadius: '10px' }}>
-          No evidence found for {formatPeriod(activePeriod)}. Upload evidence via checkpoint pages.
-        </div>
-      )}
-
       {!loading && standardGroups.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))', gap: '20px' }}>
           {standardGroups.map(group => {
@@ -444,29 +568,49 @@ export default function EvidenceBinderPage() {
 
             return (
               <div
-                key={group.standard}
+                key={`${group.standard}-${group.period}`}
                 style={{
                   background: '#fff',
                   border: '1px solid #E8E8E8',
                   borderRadius: '10px',
-                  borderLeft: `3px solid ${sc.accent}`,
                   boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   overflow: 'hidden',
                 }}
               >
-                {/* Card header */}
-                <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                {/* Card header — "Standard — Period" format */}
+                <div style={{
+                  padding: '14px 18px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  borderBottom: '1px solid #E8E8E8',
+                  background: '#FAFAFA',
+                }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <span style={{
-                      padding: '3px 10px',
-                      borderRadius: '10px',
-                      fontSize: '12px',
-                      fontWeight: 700,
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '8px',
                       background: sc.bg,
-                      color: sc.text,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '15px',
+                      flexShrink: 0,
                     }}>
-                      {group.standard}
+                      {sc.icon}
                     </span>
+                    <div>
+                      <span style={{ fontSize: '14px', fontWeight: 700, color: '#171717' }}>
+                        {group.standard}
+                      </span>
+                      <span style={{ fontSize: '14px', color: '#A3A3A3', margin: '0 6px' }}>—</span>
+                      <span style={{ fontSize: '14px', color: '#737373', fontWeight: 500 }}>
+                        {formatPeriod(group.period)}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{
                       width: '8px',
                       height: '8px',
@@ -475,31 +619,29 @@ export default function EvidenceBinderPage() {
                       display: 'inline-block',
                       flexShrink: 0,
                     }} />
+                    <span style={{ fontSize: '12px', color: '#737373', fontWeight: 500 }}>
+                      {presentCount} of {totalCount}
+                    </span>
                   </div>
-                  <span style={{ fontSize: '12px', color: '#737373', fontWeight: 500 }}>
-                    {presentCount} of {totalCount} items
-                  </span>
                 </div>
 
-                {/* Divider */}
-                <div style={{ height: '1px', background: '#E8E8E8' }} />
-
                 {/* Evidence items */}
-                <div style={{ padding: '8px 0' }}>
+                <div style={{ padding: '4px 0' }}>
                   {group.items.map(item => {
                     const ft = FILE_ICONS[item.file_type ?? getFileTypeFromName(item.file_name)] ?? FILE_ICONS.document
+                    const hasPath = !!item.file_path
                     return (
                       <div
                         key={item.id}
-                        onClick={() => handleViewFile(item)}
+                        onClick={() => hasPath && handleViewFile(item)}
                         style={{
                           padding: '10px 18px',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '10px',
-                          cursor: item.file_path ? 'pointer' : 'default',
+                          cursor: hasPath ? 'pointer' : 'default',
                         }}
-                        onMouseEnter={(e) => { if (item.file_path) e.currentTarget.style.background = '#FAFAFA' }}
+                        onMouseEnter={(e) => { if (hasPath) e.currentTarget.style.background = '#FAFAFA' }}
                         onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
                       >
                         {/* File type badge */}
@@ -521,34 +663,10 @@ export default function EvidenceBinderPage() {
                           {item.file_name}
                         </span>
 
-                        {/* File size */}
+                        {/* Short date */}
                         <span style={{ fontSize: '12px', color: '#A3A3A3', flexShrink: 0 }}>
-                          {formatFileSize(item.file_size_bytes)}
+                          {shortDate(item.created_at)}
                         </span>
-
-                        {/* View button */}
-                        {item.file_path && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleViewFile(item) }}
-                            style={{
-                              padding: '3px 8px',
-                              background: '#F5F5F5',
-                              border: '1px solid #E8E8E8',
-                              borderRadius: '4px',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              color: '#525252',
-                              cursor: 'pointer',
-                              fontFamily: 'inherit',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '3px',
-                              flexShrink: 0,
-                            }}
-                          >
-                            👁 View
-                          </button>
-                        )}
                       </div>
                     )
                   })}
@@ -568,8 +686,8 @@ export default function EvidenceBinderPage() {
                         gap: '8px',
                       }}
                     >
-                      <span style={{ fontSize: '14px', flexShrink: 0 }}>⚠</span>
-                      <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: '14px', flexShrink: 0 }}>!</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ fontSize: '13px', color: '#DC2626', fontWeight: 600 }}>
                           Missing:
                         </span>
@@ -577,16 +695,43 @@ export default function EvidenceBinderPage() {
                         <span style={{ fontSize: '13px', color: '#B91C1C' }}>
                           {m.controlTitle} evidence
                         </span>
-                        <span style={{ fontSize: '11px', color: '#A3A3A3', marginLeft: '6px', fontFamily: 'monospace' }}>
-                          {m.controlCode}
-                        </span>
+                        {m.status === 'overdue' && (
+                          <span style={{
+                            marginLeft: '6px',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            background: '#DC2626',
+                            color: '#fff',
+                          }}>
+                            overdue
+                          </span>
+                        )}
                       </div>
+                      <span style={{ fontSize: '11px', color: '#A3A3A3', fontFamily: 'monospace', flexShrink: 0 }}>
+                        {m.controlCode}
+                      </span>
                     </div>
                   ))}
+
+                  {/* Empty state within card */}
+                  {group.items.length === 0 && group.missing.length === 0 && (
+                    <div style={{ padding: '16px 18px', fontSize: '13px', color: '#A3A3A3', fontStyle: 'italic' }}>
+                      No evidence for this standard
+                    </div>
+                  )}
                 </div>
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Empty state (no groups, not demo, not loading) */}
+      {!loading && standardGroups.length === 0 && !isDemo && (
+        <div style={{ padding: '48px', textAlign: 'center', color: '#A3A3A3', fontSize: '14px', background: '#fff', border: '1px solid #E8E8E8', borderRadius: '10px' }}>
+          No evidence found for {formatPeriod(activePeriod)}. Upload evidence via checkpoint pages.
         </div>
       )}
     </div>

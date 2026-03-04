@@ -307,17 +307,29 @@ export default function CheckpointCalendar() {
     }
   }
 
-  async function handleSeed() {
+  async function handleSeed(force = false) {
     setSeeding(true)
     setSeedMsg(null)
     setSeedError(null)
     try {
-      const res = await fetch('/api/seed-checkpoints', { method: 'POST' })
+      const url = force ? '/api/seed-checkpoints?force=true' : '/api/seed-checkpoints'
+      const res = await fetch(url, { method: 'POST' })
       const data = await res.json()
       if (!res.ok) {
-        setSeedError(data.error ?? 'Seed failed')
+        // If 409 (already loaded) offer to force-reseed with updated dates
+        if (res.status === 409 && !force) {
+          const confirmed = window.confirm(
+            'Checkpoints are already loaded. Re-seed with the latest schedule? This will replace existing checkpoints.'
+          )
+          if (confirmed) {
+            return handleSeed(true)
+          }
+          setSeedError(null)
+        } else {
+          setSeedError(data.error ?? 'Seed failed')
+        }
       } else {
-        setSeedMsg(`Loaded ${data.checkpoints} checkpoints across 12 months.`)
+        setSeedMsg(`Loaded ${data.checkpoints} checkpoints across 13 months.`)
         setUsingMocks(false)
         if (org?.id) fetchCheckpoints(org.id, viewYear, viewMonth)
       }
@@ -372,7 +384,7 @@ export default function CheckpointCalendar() {
         <div style={{ display: "flex", gap: 8 }}>
           {usingMocks && org?.id && (
             <button
-              onClick={handleSeed}
+              onClick={() => handleSeed()}
               disabled={seeding}
               style={{
                 display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",

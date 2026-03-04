@@ -149,105 +149,123 @@ const CONTROLS = [
 ] as const;
 
 // ── Checkpoint schedule: { date, control_code, assignee_name } ─────────────
+// Exact dates provided for March 2026 through March 2027.
+// Assignments: Emily = clinical, Jericho = clinical (alternating), Wayne = facility/safety/ops, Brian = compliance/HR/billing
 const SCHEDULE: { date: string; code: string; assignee: string }[] = [
-  // March 2026
-  { date: '2026-03-02', code: 'SAFETY-WV-001',  assignee: 'Brian' },
-  { date: '2026-03-02', code: 'HIPAA-RISK-001',  assignee: 'Brian' },
-  { date: '2026-03-02', code: 'QM-EVAL-001',     assignee: 'Brian' },
-  { date: '2026-03-04', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2026-03-11', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2026-03-13', code: 'EMER-DRILL-001',  assignee: 'Wayne' },
-  { date: '2026-03-13', code: 'EMER-READY-001',  assignee: 'Wayne' },
-  { date: '2026-03-13', code: 'HIPAA-PRIV-001',  assignee: 'Brian' },
-  { date: '2026-03-18', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2026-03-25', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2026-03-27', code: 'BILL-INT-001',    assignee: 'Brian' },
-  // April 2026
-  { date: '2026-04-01', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2026-04-08', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2026-04-15', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2026-04-17', code: 'EMER-EVAC-001',   assignee: 'Wayne' },
-  { date: '2026-04-22', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2026-04-24', code: 'BILL-INT-001',    assignee: 'Brian' },
-  // May 2026
-  { date: '2026-05-06', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2026-05-13', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2026-05-20', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2026-05-27', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2026-05-29', code: 'BILL-INT-001',    assignee: 'Brian' },
-  // June 2026
-  { date: '2026-06-03', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2026-06-10', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2026-06-12', code: 'EMER-DRILL-001',  assignee: 'Wayne' },
-  { date: '2026-06-12', code: 'EMER-READY-001',  assignee: 'Wayne' },
-  { date: '2026-06-12', code: 'HIPAA-PRIV-001',  assignee: 'Brian' },
-  { date: '2026-06-17', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2026-06-24', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2026-06-26', code: 'BILL-INT-001',    assignee: 'Brian' },
-  // July 2026
-  { date: '2026-07-01', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2026-07-08', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2026-07-15', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2026-07-22', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2026-07-31', code: 'BILL-INT-001',    assignee: 'Brian' },
-  // August 2026
-  { date: '2026-08-05', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2026-08-12', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2026-08-19', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2026-08-26', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2026-08-28', code: 'BILL-INT-001',    assignee: 'Brian' },
-  // September 2026
-  { date: '2026-09-02', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2026-09-09', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2026-09-11', code: 'EMER-DRILL-001',  assignee: 'Wayne' },
-  { date: '2026-09-11', code: 'EMER-READY-001',  assignee: 'Wayne' },
-  { date: '2026-09-11', code: 'HIPAA-PRIV-001',  assignee: 'Brian' },
-  { date: '2026-09-16', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2026-09-23', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2026-09-25', code: 'BILL-INT-001',    assignee: 'Brian' },
-  // October 2026
-  { date: '2026-10-07', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2026-10-14', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2026-10-16', code: 'EMER-EVAC-001',   assignee: 'Wayne' },
-  { date: '2026-10-21', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2026-10-28', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2026-10-30', code: 'BILL-INT-001',    assignee: 'Brian' },
-  // November 2026
-  { date: '2026-11-04', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2026-11-11', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2026-11-18', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2026-11-25', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2026-11-27', code: 'BILL-INT-001',    assignee: 'Brian' },
-  // December 2026
-  { date: '2026-12-02', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2026-12-09', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2026-12-11', code: 'EMER-DRILL-001',  assignee: 'Wayne' },
-  { date: '2026-12-11', code: 'EMER-READY-001',  assignee: 'Wayne' },
-  { date: '2026-12-11', code: 'HIPAA-PRIV-001',  assignee: 'Brian' },
-  { date: '2026-12-16', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2026-12-23', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2026-12-25', code: 'BILL-INT-001',    assignee: 'Brian' },
-  // January 2027
-  { date: '2027-01-06', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2027-01-13', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2027-01-20', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2027-01-27', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2027-01-29', code: 'BILL-INT-001',    assignee: 'Brian' },
-  // February 2027
-  { date: '2027-02-03', code: 'GOV-QM-001',      assignee: 'Wayne' },
-  { date: '2027-02-10', code: 'CLIN-DOC-001',    assignee: 'Emily' },
-  { date: '2027-02-17', code: 'WORK-COMP-001',   assignee: 'Brian' },
-  { date: '2027-02-22', code: 'AUDIT-STRESS-001',assignee: 'Brian' },
-  { date: '2027-02-24', code: 'ENV-CARE-001',    assignee: 'Wayne' },
-  { date: '2027-02-26', code: 'BILL-INT-001',    assignee: 'Brian' },
+  // ── March 2026 ──────────────────────────────────────────────
+  { date: '2026-03-10', code: 'SAFETY-WV-001',   assignee: 'Brian' },   // Annual workplace violence worksite analysis
+  { date: '2026-03-10', code: 'HIPAA-RISK-001',  assignee: 'Brian' },   // Annual HIPAA security risk analysis
+  { date: '2026-03-10', code: 'QM-EVAL-001',     assignee: 'Brian' },   // Annual QM Program evaluation
+  { date: '2026-03-12', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2026-03-19', code: 'CLIN-DOC-001',    assignee: 'Emily' },   // Clinical documentation & safety chart audit
+  { date: '2026-03-21', code: 'EMER-DRILL-001',  assignee: 'Wayne' },   // Quarterly disaster drill
+  { date: '2026-03-21', code: 'EMER-READY-001',  assignee: 'Wayne' },   // Quarterly 2-hour readiness drill
+  { date: '2026-03-21', code: 'HIPAA-PRIV-001',  assignee: 'Brian' },   // Quarterly privacy & consent controls
+  { date: '2026-03-26', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce training & competency audit
+
+  // ── April 2026 ──────────────────────────────────────────────
+  { date: '2026-04-02', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds
+  { date: '2026-04-04', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
+  { date: '2026-04-09', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2026-04-16', code: 'CLIN-DOC-001',    assignee: 'Jericho' }, // Clinical documentation
+  { date: '2026-04-23', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce audit
+  { date: '2026-04-25', code: 'EMER-EVAC-001',   assignee: 'Wayne' },   // Semiannual evacuation drill
+  { date: '2026-04-30', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds
+
+  // ── May 2026 ────────────────────────────────────────────────
+  { date: '2026-05-02', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
+  { date: '2026-05-14', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2026-05-21', code: 'CLIN-DOC-001',    assignee: 'Emily' },   // Clinical documentation
+  { date: '2026-05-28', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce audit
+
+  // ── June 2026 ───────────────────────────────────────────────
+  { date: '2026-06-04', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds
+  { date: '2026-06-06', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
+  { date: '2026-06-11', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2026-06-18', code: 'CLIN-DOC-001',    assignee: 'Jericho' }, // Clinical documentation
+  { date: '2026-06-20', code: 'EMER-DRILL-001',  assignee: 'Wayne' },   // Quarterly disaster drill
+  { date: '2026-06-20', code: 'EMER-READY-001',  assignee: 'Wayne' },   // Quarterly 2-hour readiness drill
+  { date: '2026-06-20', code: 'HIPAA-PRIV-001',  assignee: 'Brian' },   // Quarterly privacy & consent controls
+  { date: '2026-06-25', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce audit
+
+  // ── July 2026 ───────────────────────────────────────────────
+  { date: '2026-07-02', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds
+  { date: '2026-07-04', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
+  { date: '2026-07-09', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2026-07-16', code: 'CLIN-DOC-001',    assignee: 'Emily' },   // Clinical documentation
+  { date: '2026-07-23', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce audit
+  { date: '2026-07-30', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds
+
+  // ── August 2026 ─────────────────────────────────────────────
+  { date: '2026-08-08', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
+  { date: '2026-08-13', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2026-08-20', code: 'CLIN-DOC-001',    assignee: 'Jericho' }, // Clinical documentation
+  { date: '2026-08-27', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce audit
+
+  // ── September 2026 ──────────────────────────────────────────
+  { date: '2026-09-03', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds
+  { date: '2026-09-05', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
+  { date: '2026-09-10', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2026-09-17', code: 'CLIN-DOC-001',    assignee: 'Emily' },   // Clinical documentation
+  { date: '2026-09-19', code: 'EMER-DRILL-001',  assignee: 'Wayne' },   // Quarterly disaster drill
+  { date: '2026-09-19', code: 'EMER-READY-001',  assignee: 'Wayne' },   // Quarterly 2-hour readiness drill
+  { date: '2026-09-19', code: 'HIPAA-PRIV-001',  assignee: 'Brian' },   // Quarterly privacy & consent controls
+  { date: '2026-09-24', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce audit
+
+  // ── October 2026 ────────────────────────────────────────────
+  { date: '2026-10-01', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds
+  { date: '2026-10-03', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
+  { date: '2026-10-15', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2026-10-22', code: 'CLIN-DOC-001',    assignee: 'Jericho' }, // Clinical documentation
+  { date: '2026-10-24', code: 'EMER-EVAC-001',   assignee: 'Wayne' },   // Semiannual evacuation drill
+  { date: '2026-10-29', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce audit
+
+  // ── November 2026 ───────────────────────────────────────────
+  { date: '2026-11-05', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds
+  { date: '2026-11-07', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
+  { date: '2026-11-12', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2026-11-19', code: 'CLIN-DOC-001',    assignee: 'Emily' },   // Clinical documentation
+  { date: '2026-11-26', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce audit
+
+  // ── December 2026 ───────────────────────────────────────────
+  { date: '2026-12-03', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds
+  { date: '2026-12-05', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
+  { date: '2026-12-10', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2026-12-17', code: 'CLIN-DOC-001',    assignee: 'Jericho' }, // Clinical documentation
+  { date: '2026-12-19', code: 'EMER-DRILL-001',  assignee: 'Wayne' },   // Quarterly disaster drill
+  { date: '2026-12-19', code: 'EMER-READY-001',  assignee: 'Wayne' },   // Quarterly 2-hour readiness drill
+  { date: '2026-12-19', code: 'HIPAA-PRIV-001',  assignee: 'Brian' },   // Quarterly privacy & consent controls
+  { date: '2026-12-24', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce audit
+  { date: '2026-12-31', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds (year-end)
+
+  // ── January 2027 ────────────────────────────────────────────
+  { date: '2027-01-02', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
+  { date: '2027-01-14', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2027-01-21', code: 'CLIN-DOC-001',    assignee: 'Emily' },   // Clinical documentation
+  { date: '2027-01-28', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce audit
+
+  // ── February 2027 ───────────────────────────────────────────
+  { date: '2027-02-04', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds
+  { date: '2027-02-06', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
+  { date: '2027-02-11', code: 'GOV-QM-001',      assignee: 'Wayne' },   // Governance & Quality (QM/PI)
+  { date: '2027-02-18', code: 'CLIN-DOC-001',    assignee: 'Jericho' }, // Clinical documentation
+  { date: '2027-02-25', code: 'WORK-COMP-001',   assignee: 'Brian' },   // Workforce audit
+
+  // ── March 2027 ──────────────────────────────────────────────
+  { date: '2027-03-02', code: 'AUDIT-STRESS-001',assignee: 'Brian' },   // Year-end compliance stress test (mock survey)
+  { date: '2027-03-04', code: 'ENV-CARE-001',    assignee: 'Wayne' },   // Environment of Care rounds
+  { date: '2027-03-06', code: 'BILL-INT-001',    assignee: 'Brian' },   // Billing/encounter integrity
 ];
 
 function periodFromDate(dateStr: string): string {
   return dateStr.slice(0, 7); // "2026-03"
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const force = searchParams.get('force') === 'true';
+
     const userClient = await createClient();
     const { data: { user }, error: userError } = await userClient.auth.getUser();
     if (userError || !user) {
@@ -270,18 +288,23 @@ export async function POST() {
 
     const orgId = membership.org_id;
 
-    // Idempotency: check if CHECKPOINTS are already seeded (not just controls,
-    // so a partial failure — controls created, checkpoints failed — can be retried)
+    // Idempotency: check if CHECKPOINTS are already seeded
     const { count: checkpointCount } = await admin
       .from('checkpoints')
       .select('id', { count: 'exact', head: true })
       .eq('org_id', orgId);
 
     if (checkpointCount && checkpointCount > 0) {
-      return NextResponse.json(
-        { error: 'Compliance checkpoints are already loaded for this organization.' },
-        { status: 409 }
-      );
+      if (force) {
+        // Force mode: delete existing checkpoints (and their evidence) then re-insert
+        await admin.from('evidence').delete().eq('org_id', orgId);
+        await admin.from('checkpoints').delete().eq('org_id', orgId);
+      } else {
+        return NextResponse.json(
+          { error: 'Compliance checkpoints are already loaded for this organization.' },
+          { status: 409 }
+        );
+      }
     }
 
     // ── 1. Upsert controls (idempotent — safe to re-run) ─────────────────
