@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import {
   X, ChevronLeft, ChevronRight, User, Calendar, FileText,
   Upload, Loader2, Bell, BellRing, Check, AlertTriangle,
-  Bot, Edit2, Paperclip, Plus, ClipboardList,
+  Bot, Edit2, Paperclip, Plus, ClipboardList, Clock, Shield,
+  History, Save, Send,
 } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { uploadEvidence } from "@/lib/supabase/storage"
@@ -50,6 +51,25 @@ interface CheckpointDetail {
   assignee: { full_name: string; id: string } | null
   evidence: EvidenceItem[]
 }
+
+interface ActivityLogEntry {
+  id: string
+  action: string
+  user_id: string | null
+  created_at: string
+  metadata: Record<string, unknown>
+  user?: { full_name: string } | null
+}
+
+type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH'
+
+const FAIL_REASONS = [
+  'Missing documentation',
+  'Non-compliant',
+  'Incomplete procedure',
+  'Staff training gap',
+  'Other',
+] as const
 
 // Named team members that can be assigned without a user account
 const TEAM_MEMBERS = ['Emily', 'Wayne', 'Brian', 'Jericho'] as const
@@ -125,6 +145,50 @@ function getPeriodString(year: number, month: number): string {
   return `${year}-${String(month + 1).padStart(2, "0")}`
 }
 
+function relativeTime(isoStr: string): string {
+  const now = Date.now()
+  const then = new Date(isoStr).getTime()
+  const diffMs = now - then
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(isoStr).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
+function calcRiskLevel(detail: CheckpointDetail | null): RiskLevel {
+  if (!detail) return "LOW"
+  if (detail.status === "overdue" || detail.status === "failed") return "HIGH"
+  const dueDate = new Date(detail.due_date + "T23:59:59")
+  const now = new Date()
+  const daysUntilDue = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+  const hasEvidence = (detail.evidence?.length ?? 0) > 0
+  if (daysUntilDue <= 2 && !hasEvidence) return "HIGH"
+  if (daysUntilDue <= 7 && (!hasEvidence || detail.status === "pending")) return "MEDIUM"
+  return "LOW"
+}
+
+const RISK_COLORS: Record<RiskLevel, { bg: string; color: string; border: string }> = {
+  LOW:    { bg: "#F0FDF4", color: "#15803D", border: "#86EFAC" },
+  MEDIUM: { bg: "#FFFBEB", color: "#B45309", border: "#FCD34D" },
+  HIGH:   { bg: "#FEF2F2", color: "#DC2626", border: "#FCA5A5" },
+}
+
+function actionLabel(action: string): string {
+  switch (action) {
+    case "checkpoint.created":    return "Created"
+    case "checkpoint.updated":    return "Updated"
+    case "checkpoint.passed":     return "Marked as Pass"
+    case "checkpoint.failed":     return "Marked as Fail"
+    case "checkpoint.overdue":    return "Marked Overdue"
+    case "checkpoint.reassigned": return "Reassigned"
+    default: return action.replace("checkpoint.", "").replace(/_/g, " ")
+  }
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function CheckpointPopover({
@@ -169,6 +233,13 @@ export default function CheckpointPopover({
   // Attestation
   const [attesting, setAttesting] = useState(false)
   const [attestError, setAttestError] = useState<string | null>(null)
+  const [failReason, setFailReason] = useState("")
+  const [failComment, setFailComment] = useState("")
+  const [attestChoice, setAttestChoice] = useState<"pass" | "fail" | "conditional" | null>(null)
+
+  // Activity log
+  const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>([])
+  const [activityExpanded, setActivityExpanded] = useState(false)
 
   const activeEvent = dayEvents[activeIdx] ?? null
 
@@ -270,6 +341,17 @@ export default function CheckpointPopover({
       if (ctrl?.title) {
         fetchAiInsight(ctrl.title, ctrl.standard ?? "", data.status as string)
       }
+
+      // Fetch activity log from audit_log
+      const { data: logData } = await supabase
+        .from("audit_log")
+        .select("id, action, user_id, created_at, metadata")
+        .eq("entity_type", "checkpoint")
+        .eq("entity_id", id)
+        .order("created_at", { ascending: false })
+        .limit(20)
+
+      setActivityLog((logData ?? []) as unknown as ActivityLogEntry[])
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Failed to load")
     } finally {
@@ -393,14 +475,30 @@ export default function CheckpointPopover({
           .eq("id", detail.id)
         if (error) { setSaveError(error.message); return }
 
-        await supabase.from("audit_log").insert({
-          org_id: orgId,
-          user_id: userId,
-          action: "checkpoint.updated",
-          entity_type: "checkpoint",
-          entity_id: detail.id,
-          metadata: { status: formStatus },
-        })
+        // Check if assignee changed for reassignment tracking
+        const oldAssignee = detail.assignee_name ?? detail.assignee?.full_name ?? "Unassigned"
+        const newAssignee = isNameOnly ? formAssignee : ((members.find(m => m.user_id === formAssignee)?.full_name ?? formAssignee) || "Unassigned")
+        const wasReassigned = oldAssignee !== newAssignee && newAssignee !== "Unassigned"
+
+        if (wasReassigned) {
+          await supabase.from("audit_log").insert({
+            org_id: orgId,
+            user_id: userId,
+            action: "checkpoint.reassigned",
+            entity_type: "checkpoint",
+            entity_id: detail.id,
+            metadata: { old_assignee: oldAssignee, new_assignee: newAssignee, status: formStatus },
+          })
+        } else {
+          await supabase.from("audit_log").insert({
+            org_id: orgId,
+            user_id: userId,
+            action: "checkpoint.updated",
+            entity_type: "checkpoint",
+            entity_id: detail.id,
+            metadata: { status: formStatus },
+          })
+        }
       }
 
       onRefresh()
@@ -419,7 +517,18 @@ export default function CheckpointPopover({
         setAttestError("Upload at least one evidence file before attesting Pass.")
         return
       }
+      if (attest === "fail" && (!failReason || !failComment.trim())) {
+        setAttestError("Please select a reason and provide a comment for the failure.")
+        return
+      }
+
       const supabase = createClient()
+
+      // Build notes for fail attestation
+      const failNotes = attest === "fail"
+        ? `FAIL REASON: ${failReason}\nCOMMENT: ${failComment.trim()}${detail.notes ? `\n\nPrevious notes: ${detail.notes}` : ""}`
+        : detail.notes
+
       const { error } = await supabase
         .from("checkpoints")
         .update({
@@ -427,6 +536,7 @@ export default function CheckpointPopover({
           attestation: attest,
           completed_at: new Date().toISOString(),
           completed_by: userId,
+          notes: failNotes,
         })
         .eq("id", detail.id)
 
@@ -438,9 +548,39 @@ export default function CheckpointPopover({
         action: `checkpoint.${attest === "pass" ? "passed" : "failed"}`,
         entity_type: "checkpoint",
         entity_id: detail.id,
-        metadata: { attestation: attest },
+        metadata: {
+          attestation: attest,
+          ...(attest === "fail" ? { fail_reason: failReason, fail_comment: failComment.trim() } : {}),
+        },
       })
 
+      // Auto-create finding for failed checkpoints
+      if (attest === "fail") {
+        const period = detail.period
+        const { data: meetings } = await supabase
+          .from("qm_meetings")
+          .select("id")
+          .eq("org_id", orgId)
+          .eq("period", period)
+          .limit(1)
+
+        if (meetings && meetings.length > 0) {
+          await supabase.from("findings").insert({
+            org_id: orgId,
+            qm_meeting_id: meetings[0].id,
+            checkpoint_id: detail.id,
+            title: `Failed: ${detail.control?.title ?? "Unknown Control"}`,
+            description: `Checkpoint ${detail.control?.code ?? ""} failed attestation. Reason: ${failReason}. ${failComment.trim()}`,
+            severity: "high",
+            standard: detail.control?.standard ?? "Internal",
+          })
+        }
+      }
+
+      // Reset fail form state
+      setAttestChoice(null)
+      setFailReason("")
+      setFailComment("")
       onRefresh()
       onClose()
     } finally {
@@ -551,7 +691,7 @@ export default function CheckpointPopover({
         style={{
           position: "fixed", top: 0, right: 0,
           height: "100dvh",
-          width: "clamp(360px, 480px, 100vw)",
+          width: "clamp(420px, 720px, 95vw)",
           background: "#fff",
           zIndex: 999,
           boxShadow: "-6px 0 40px rgba(0,0,0,0.14)",
@@ -606,6 +746,22 @@ export default function CheckpointPopover({
                   + NEW
                 </span>
               )}
+              {/* Risk Score Badge */}
+              {mode === "view" && detail && !detail.completed_at && (() => {
+                const risk = calcRiskLevel(detail)
+                const rc = RISK_COLORS[risk]
+                return (
+                  <span style={{
+                    fontSize: "10px", fontWeight: 700, letterSpacing: "0.05em",
+                    color: rc.color, background: rc.bg,
+                    border: `1px solid ${rc.border}`,
+                    borderRadius: "4px", padding: "2px 7px",
+                    display: "inline-flex", alignItems: "center", gap: 3,
+                  }}>
+                    <Shield size={9} /> {risk}
+                  </span>
+                )
+              })()}
 
               {/* Multi-event nav */}
               {dayEvents.length > 1 && mode === "view" && (
@@ -1063,35 +1219,99 @@ export default function CheckpointPopover({
                       {attestError}
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <button
-                      onClick={() => handleAttest("pass")}
-                      disabled={attesting}
-                      style={{
-                        flex: 1, padding: "10px 0", fontSize: "13px", fontWeight: 700,
-                        background: "#F0FDF4", color: "#15803D",
-                        border: "1.5px solid #86EFAC", borderRadius: "7px",
-                        cursor: attesting ? "not-allowed" : "pointer",
-                        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                      }}
-                    >
-                      {attesting ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <Check size={14} strokeWidth={2.5} />}
-                      Pass
-                    </button>
-                    <button
-                      onClick={() => handleAttest("fail")}
-                      disabled={attesting}
-                      style={{
-                        flex: 1, padding: "10px 0", fontSize: "13px", fontWeight: 700,
-                        background: "#FEF2F2", color: "#DC2626",
-                        border: "1.5px solid #FCA5A5", borderRadius: "7px",
-                        cursor: attesting ? "not-allowed" : "pointer",
-                        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                      }}
-                    >
-                      <AlertTriangle size={14} /> Fail
-                    </button>
+                  {/* Attestation choice buttons */}
+                  <div style={{ display: "flex", gap: 8, marginBottom: attestChoice === "fail" ? 12 : 0 }}>
+                    {([
+                      { key: "pass" as const, label: "Pass", icon: <Check size={14} strokeWidth={2.5} />, bg: "#F0FDF4", color: "#15803D", border: "#86EFAC" },
+                      { key: "conditional" as const, label: "Conditional", icon: <Clock size={14} />, bg: "#FFFBEB", color: "#B45309", border: "#FCD34D" },
+                      { key: "fail" as const, label: "Fail", icon: <AlertTriangle size={14} />, bg: "#FEF2F2", color: "#DC2626", border: "#FCA5A5" },
+                    ]).map(opt => (
+                      <button
+                        key={opt.key}
+                        onClick={() => {
+                          if (opt.key === "pass") handleAttest("pass")
+                          else if (opt.key === "conditional") handleAttest("pass") // conditional pass = pass with note
+                          else setAttestChoice("fail")
+                        }}
+                        disabled={attesting}
+                        style={{
+                          flex: 1, padding: "10px 0", fontSize: "12px", fontWeight: 700,
+                          background: attestChoice === opt.key ? opt.color : opt.bg,
+                          color: attestChoice === opt.key ? "#fff" : opt.color,
+                          border: `1.5px solid ${opt.border}`, borderRadius: "7px",
+                          cursor: attesting ? "not-allowed" : "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        {attesting && attestChoice === opt.key
+                          ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+                          : opt.icon
+                        }
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
+
+                  {/* Fail reason form */}
+                  {attestChoice === "fail" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "12px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: "8px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#DC2626", marginBottom: 4 }}>
+                          Reason <span style={{ color: "#DC2626" }}>*</span>
+                        </label>
+                        <select
+                          value={failReason}
+                          onChange={e => setFailReason(e.target.value)}
+                          style={{
+                            width: "100%", padding: "8px 10px", fontSize: "13px",
+                            border: "1px solid #FECACA", borderRadius: "6px",
+                            background: "#fff", color: "#171717", fontFamily: "inherit",
+                          }}
+                        >
+                          <option value="">Select reason...</option>
+                          {FAIL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "#DC2626", marginBottom: 4 }}>
+                          Comment <span style={{ color: "#DC2626" }}>*</span>
+                        </label>
+                        <textarea
+                          value={failComment}
+                          onChange={e => setFailComment(e.target.value)}
+                          rows={2}
+                          placeholder="Describe the failure details..."
+                          style={{
+                            width: "100%", padding: "8px 10px", fontSize: "13px",
+                            border: "1px solid #FECACA", borderRadius: "6px",
+                            background: "#fff", color: "#171717", fontFamily: "inherit",
+                            resize: "vertical", boxSizing: "border-box",
+                          }}
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (!failReason || !failComment.trim()) {
+                            setAttestError("Please select a reason and provide a comment for the failure.")
+                            return
+                          }
+                          handleAttest("fail")
+                        }}
+                        disabled={attesting || !failReason || !failComment.trim()}
+                        style={{
+                          padding: "9px", fontSize: "13px", fontWeight: 700,
+                          background: (!failReason || !failComment.trim()) ? "#A3A3A3" : "#DC2626",
+                          color: "#fff", border: "none", borderRadius: "6px",
+                          cursor: (!failReason || !failComment.trim()) ? "not-allowed" : "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                        }}
+                      >
+                        {attesting ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <AlertTriangle size={14} />}
+                        Confirm Failure
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1157,6 +1377,70 @@ export default function CheckpointPopover({
                         </p>
                     }
                   </div>
+                </div>
+              )}
+
+              {/* ── ACTIVITY LOG ────────────────────────────────────── */}
+              {mode === "view" && detail && activityLog.length > 0 && (
+                <div style={{ padding: "14px 18px", borderBottom: "1px solid #F5F5F5" }}>
+                  <button
+                    onClick={() => setActivityExpanded(!activityExpanded)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 5, width: "100%",
+                      background: "none", border: "none", cursor: "pointer", padding: 0,
+                      fontSize: "11px", fontWeight: 700, color: "#737373",
+                      textTransform: "uppercase", letterSpacing: "0.05em",
+                    }}
+                  >
+                    <History size={11} />
+                    Activity ({activityLog.length})
+                    <ChevronRight
+                      size={12}
+                      style={{
+                        marginLeft: "auto",
+                        transform: activityExpanded ? "rotate(90deg)" : "none",
+                        transition: "transform 0.15s",
+                      }}
+                    />
+                  </button>
+                  {activityExpanded && (
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 0 }}>
+                      {activityLog.map((entry, i) => (
+                        <div key={entry.id} style={{ display: "flex", gap: 10, position: "relative" }}>
+                          {/* Timeline line */}
+                          {i < activityLog.length - 1 && (
+                            <div style={{
+                              position: "absolute", left: 5, top: 18, width: 1,
+                              height: "calc(100% + 2px)", background: "#E8E8E8",
+                            }} />
+                          )}
+                          {/* Timeline dot */}
+                          <div style={{
+                            width: 11, height: 11, borderRadius: "50%", flexShrink: 0,
+                            background: entry.action.includes("passed") ? "#16A34A"
+                              : entry.action.includes("failed") ? "#DC2626"
+                              : entry.action.includes("overdue") ? "#D97706"
+                              : "#3BA7C9",
+                            marginTop: 3,
+                          }} />
+                          <div style={{ flex: 1, paddingBottom: 12 }}>
+                            <div style={{ fontSize: "13px", color: "#262626", fontWeight: 500 }}>
+                              {actionLabel(entry.action)}
+                            </div>
+                            {entry.metadata && Object.keys(entry.metadata).length > 0 && (
+                              <div style={{ fontSize: "11px", color: "#A3A3A3", marginTop: 1 }}>
+                                {entry.metadata.fail_reason ? `Reason: ${entry.metadata.fail_reason}` : ""}
+                                {entry.metadata.old_assignee ? `From ${entry.metadata.old_assignee} → ${entry.metadata.new_assignee}` : ""}
+                              </div>
+                            )}
+                            <div style={{ fontSize: "11px", color: "#A3A3A3", marginTop: 2 }}>
+                              {relativeTime(entry.created_at)}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1259,6 +1543,59 @@ export default function CheckpointPopover({
             </>
           )}
         </div>
+
+        {/* ── STICKY FOOTER ────────────────────────────────────── */}
+        {mode !== "view" && (
+          <div style={{
+            padding: "12px 18px",
+            borderTop: "1px solid #E8E8E8",
+            background: "#FAFAFA",
+            flexShrink: 0,
+            display: "flex",
+            gap: 8,
+            justifyContent: "flex-end",
+          }}>
+            <button
+              onClick={() => dayEvents.length > 0 ? setMode("view") : onClose()}
+              style={{
+                padding: "9px 18px", fontSize: "13px", fontWeight: 600,
+                background: "#fff", color: "#525252", border: "1px solid #D4D4D4",
+                borderRadius: "6px", cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                padding: "9px 18px", fontSize: "13px", fontWeight: 600,
+                background: "#fff", color: "#2A8BA8", border: "1px solid #B5E3F0",
+                borderRadius: "6px", cursor: saving ? "not-allowed" : "pointer",
+                display: "flex", alignItems: "center", gap: 5,
+              }}
+            >
+              <Save size={13} />
+              {saving ? "Saving..." : "Save Draft"}
+            </button>
+            {mode === "create" && (
+              <button
+                onClick={handleSave}
+                disabled={saving || !formControl || !formDueDate}
+                style={{
+                  padding: "9px 20px", fontSize: "13px", fontWeight: 700,
+                  background: (saving || !formControl || !formDueDate) ? "#A3A3A3" : "#2A8BA8",
+                  color: "#fff", border: "none", borderRadius: "6px",
+                  cursor: (saving || !formControl || !formDueDate) ? "not-allowed" : "pointer",
+                  display: "flex", alignItems: "center", gap: 5,
+                }}
+              >
+                <Send size={13} />
+                Create & Submit
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <style>{`
