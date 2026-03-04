@@ -6,6 +6,7 @@ import CalendarEvent from "./calendar-event"
 import CheckpointPopover, { type CalendarDayEvent } from "./checkpoint-popover"
 import { createClient } from "@/lib/supabase/client"
 import { useOrg } from "@/hooks/use-org"
+import { useRealtime } from "@/hooks/use-realtime"
 import { generateCheckpoints } from "@/app/(portal)/controls/generate-checkpoints"
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -203,6 +204,17 @@ export default function CheckpointCalendar() {
       setLoading(false)
     }
   }, [org?.id, viewYear, viewMonth, fetchCheckpoints])
+
+  // ── Realtime subscription ──────────────────────────────────────────
+  useRealtime({
+    table: 'checkpoints',
+    filter: org?.id ? `org_id=eq.${org.id}` : undefined,
+    callback: () => {
+      if (org?.id) {
+        fetchCheckpoints(org.id, viewYear, viewMonth)
+      }
+    },
+  })
 
   // ── Stats ────────────────────────────────────────────────────────────
   const real      = checkpoints.filter(c => c.status !== "info")

@@ -41,6 +41,8 @@ export default function QMPage() {
   const [capaCount, setCapaCount] = useState(0);
   const [activeTab, setActiveTab] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [populating, setPopulating] = useState(false);
+  const [populateMsg, setPopulateMsg] = useState<string | null>(null);
 
   const fetchMeeting = useCallback(async () => {
     if (!org?.id || !selectedPeriod) return;
@@ -103,6 +105,31 @@ export default function QMPage() {
       });
   }, [org?.id, meeting?.id, selectedPeriod]);
 
+  async function populateMeeting(meetingId: string) {
+    if (!org?.id || !selectedPeriod) return;
+    setPopulating(true);
+    setPopulateMsg(null);
+    try {
+      const res = await fetch('/api/qm/populate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orgId: org.id, period: selectedPeriod, meetingId }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setPopulateMsg(`Populated: ${json.stats.total} checkpoints analyzed, score ${json.scores.overall}%`);
+        await fetchMeeting(); // refresh meeting data
+      } else {
+        setPopulateMsg(`Error: ${json.error ?? 'Unknown'}`);
+      }
+    } catch {
+      setPopulateMsg('Failed to populate from calendar');
+    } finally {
+      setPopulating(false);
+      setTimeout(() => setPopulateMsg(null), 5000);
+    }
+  }
+
   async function createMeeting() {
     if (!org?.id || !selectedPeriod) return;
     setCreating(true);
@@ -124,6 +151,11 @@ export default function QMPage() {
       .single();
     setMeeting(data ?? null);
     setCreating(false);
+
+    // Auto-populate from calendar data immediately after creation
+    if (data?.id) {
+      await populateMeeting(data.id);
+    }
   }
 
   const tabs = [
@@ -190,8 +222,20 @@ export default function QMPage() {
         </div>
       ) : (
         <>
+          {/* Populate toast */}
+          {populateMsg && (
+            <div style={{
+              position: 'fixed', bottom: '24px', right: '24px', padding: '12px 20px',
+              background: populateMsg.startsWith('Error') ? 'var(--red, #DC2626)' : 'var(--g900, #171717)',
+              color: '#fff', borderRadius: '8px', fontSize: '13px', fontWeight: 500,
+              zIndex: 1000, boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
+            }}>
+              {populateMsg}
+            </div>
+          )}
+
           {/* Meeting meta bar */}
-          <div style={{ display: 'flex', gap: '20px', padding: '14px 20px', background: '#fff', border: '1px solid var(--g200, #E8E8E8)', borderRadius: '10px', marginBottom: '24px', flexWrap: 'wrap', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+          <div style={{ display: 'flex', gap: '20px', padding: '14px 20px', background: '#fff', border: '1px solid var(--g200, #E8E8E8)', borderRadius: '10px', marginBottom: '24px', flexWrap: 'wrap', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
             {[
               {
                 label: 'Meeting Date',
@@ -210,6 +254,21 @@ export default function QMPage() {
                 <p style={{ fontSize: '13px', fontWeight: 500, color: 'var(--g800, #262626)', margin: 0 }}>{value}</p>
               </div>
             ))}
+            <div style={{ marginLeft: 'auto' }}>
+              <button
+                onClick={() => populateMeeting(meeting.id)}
+                disabled={populating}
+                style={{
+                  padding: '7px 14px', background: populating ? 'var(--g200, #E8E8E8)' : 'var(--blue-light, #E8F6FA)',
+                  color: populating ? 'var(--g400, #A3A3A3)' : 'var(--blue-dark, #2A8BA8)',
+                  border: '1px solid ' + (populating ? 'var(--g300, #D4D4D4)' : 'var(--blue, #3BA7C9)'),
+                  borderRadius: '6px', fontSize: '12px', fontWeight: 600,
+                  cursor: populating ? 'default' : 'pointer',
+                }}
+              >
+                {populating ? 'Populating...' : 'Refresh from Calendar'}
+              </button>
+            </div>
           </div>
 
           {/* Tabs */}
@@ -231,6 +290,9 @@ export default function QMPage() {
               period={meeting.period}
               overallScore={meeting.audit_readiness_score}
               executiveSummary={meeting.executive_summary}
+              onRefreshFromCalendar={async () => {
+                await populateMeeting(meeting.id);
+              }}
             />
           )}
           {activeTab === 2 && (

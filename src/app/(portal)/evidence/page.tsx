@@ -64,28 +64,6 @@ const FILE_ICONS: Record<string, { label: string; bg: string; color: string }> =
   document: { label: 'DOC', bg: '#F0FDF4', color: '#16A34A' },
 }
 
-// ── Mock seed data ───────────────────────────────────────
-
-const MOCK_EVIDENCE: Array<{
-  file_name: string
-  file_type: string
-  file_size_bytes: number
-  standard: string
-  controlCode: string
-  controlTitle: string
-  period: string
-  present: boolean
-}> = [
-  { file_name: 'OIG-SCR-001_Feb2026_Results.pdf', file_type: 'pdf', file_size_bytes: 245000, standard: 'OIG', controlCode: 'OIG-SCR-001', controlTitle: 'Monthly Exclusion Screening', period: '2026-02', present: true },
-  { file_name: 'HIPAA-ACCESS-001_Feb2026_Log.pdf', file_type: 'pdf', file_size_bytes: 189000, standard: 'HIPAA', controlCode: 'HIPAA-ACCESS-001', controlTitle: 'Access Log Review', period: '2026-02', present: true },
-  { file_name: 'AHCCCS-CA-001_ChartAudit_Feb2026.pdf', file_type: 'pdf', file_size_bytes: 412000, standard: 'AHCCCS', controlCode: 'AHCCCS-CA-001', controlTitle: 'Clinical Chart Audit', period: '2026-02', present: true },
-  { file_name: 'SAFE-FD-001_FireDrill_Feb2026.pdf', file_type: 'pdf', file_size_bytes: 0, standard: 'Safety', controlCode: 'SAFE-FD-001', controlTitle: 'Fire Drill Documentation', period: '2026-02', present: false },
-  { file_name: 'SAFE-MED-001_TempLog_Feb2026.jpg', file_type: 'image', file_size_bytes: 87000, standard: 'Safety', controlCode: 'SAFE-MED-001', controlTitle: 'Medication Temperature Log', period: '2026-02', present: true },
-  { file_name: 'HR-CRED-001_CredVerification_Feb2026.pdf', file_type: 'pdf', file_size_bytes: 156000, standard: 'HR', controlCode: 'HR-CRED-001', controlTitle: 'Staff Credential Verification', period: '2026-02', present: true },
-  { file_name: 'OPS-GRV-001_GrievanceLog_Feb2026.pdf', file_type: 'pdf', file_size_bytes: 98000, standard: 'Operations', controlCode: 'OPS-GRV-001', controlTitle: 'Client Grievance Log', period: '2026-02', present: true },
-  { file_name: 'SAFE-INC-001_IncidentReport_Feb2026.pdf', file_type: 'pdf', file_size_bytes: 0, standard: 'Safety', controlCode: 'SAFE-INC-001', controlTitle: 'Incident Report Review', period: '2026-02', present: false },
-]
-
 // ── Helpers ──────────────────────────────────────────────
 
 function formatFileSize(bytes: number | null): string {
@@ -195,15 +173,6 @@ export default function EvidenceBinderPage() {
 
     const rows = (evidence ?? []) as unknown as EvidenceRow[]
 
-    // If no real data, use mock
-    if (rows.length === 0 && missing.length === 0) {
-      setEvidenceRows([])
-      setMissingEvidence([])
-      setActivePeriod('2026-02')
-      setLoading(false)
-      return
-    }
-
     setEvidenceRows(rows)
     setMissingEvidence(missing)
 
@@ -227,52 +196,16 @@ export default function EvidenceBinderPage() {
       if (r.checkpoint?.period) set.add(r.checkpoint.period)
     })
     missingEvidence.forEach(m => set.add(m.period))
-    // If no data, show mock periods
     if (set.size === 0) {
-      return ['2026-02', '2026-01', '2025-Q4', '2025-Q3']
+      // Show current period even when empty
+      const now = new Date()
+      return [`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`]
     }
     return Array.from(set).sort().reverse()
   }, [evidenceRows, missingEvidence])
 
   // Filter by active period and group by standard
   const standardGroups: StandardGroup[] = useMemo(() => {
-    const useReal = evidenceRows.length > 0 || missingEvidence.length > 0
-
-    if (!useReal) {
-      // Build from mock data
-      const groups = new Map<string, StandardGroup>()
-      for (const mock of MOCK_EVIDENCE) {
-        if (mock.period !== activePeriod) continue
-        if (!groups.has(mock.standard)) {
-          groups.set(mock.standard, { standard: mock.standard, items: [], missing: [] })
-        }
-        const g = groups.get(mock.standard)!
-        if (mock.present) {
-          g.items.push({
-            id: mock.file_name,
-            file_name: mock.file_name,
-            file_path: '',
-            file_type: mock.file_type,
-            file_size_bytes: mock.file_size_bytes,
-            created_at: new Date().toISOString(),
-            uploaded_by: null,
-            checkpoint_id: null,
-            tags: {},
-          })
-        } else {
-          g.missing.push({
-            checkpointId: mock.controlCode,
-            controlCode: mock.controlCode,
-            controlTitle: mock.controlTitle,
-            standard: mock.standard,
-            period: mock.period,
-          })
-        }
-      }
-      return Array.from(groups.values()).sort((a, b) => a.standard.localeCompare(b.standard))
-    }
-
-    // Real data
     const groups = new Map<string, StandardGroup>()
     const periodItems = evidenceRows.filter(r => r.checkpoint?.period === activePeriod)
     for (const item of periodItems) {
@@ -437,6 +370,55 @@ export default function EvidenceBinderPage() {
           )
         })}
       </div>
+
+      {/* Period Summary */}
+      {!loading && (evidenceRows.length > 0 || missingEvidence.length > 0) && (() => {
+        const periodItems = evidenceRows.filter(r => r.checkpoint?.period === activePeriod)
+        const periodMissing = missingEvidence.filter(m => m.period === activePeriod)
+        const totalCheckpoints = periodItems.length + periodMissing.length
+        const coveragePct = totalCheckpoints > 0 ? Math.round((periodItems.length / totalCheckpoints) * 100) : 0
+        const standardSet = new Set<string>()
+        periodItems.forEach(r => { if (r.checkpoint?.control?.standard) standardSet.add(r.checkpoint.control.standard) })
+        periodMissing.forEach(m => standardSet.add(m.standard))
+
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '12px', marginBottom: '20px' }}>
+            {[
+              { label: 'Evidence Files', value: String(periodItems.length), color: '#2A8BA8', bg: '#E8F6FA' },
+              { label: 'Missing Evidence', value: String(periodMissing.length), color: periodMissing.length > 0 ? '#DC2626' : '#16A34A', bg: periodMissing.length > 0 ? '#FEF2F2' : '#F0FDF4' },
+              { label: 'Coverage', value: `${coveragePct}%`, color: coveragePct >= 80 ? '#16A34A' : coveragePct >= 50 ? '#D97706' : '#DC2626', bg: coveragePct >= 80 ? '#F0FDF4' : coveragePct >= 50 ? '#FFFBEB' : '#FEF2F2' },
+              { label: 'Standards', value: String(standardSet.size), color: '#525252', bg: '#F5F5F5' },
+            ].map(({ label, value, color, bg }) => (
+              <div key={label} style={{ padding: '14px 12px', background: bg, borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '24px', fontWeight: 700, color }}>{value}</div>
+                <div style={{ fontSize: '11px', color: '#737373', fontWeight: 500, marginTop: '2px' }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
+
+      {/* Missing Evidence Alert */}
+      {!loading && (() => {
+        const periodMissing = missingEvidence.filter(m => m.period === activePeriod)
+        if (periodMissing.length === 0) return null
+        return (
+          <div style={{
+            background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px',
+            padding: '12px 16px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px',
+          }}>
+            <span style={{ fontSize: '16px', flexShrink: 0 }}>⚠</span>
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: '#B91C1C' }}>
+                {periodMissing.length} checkpoint{periodMissing.length !== 1 ? 's' : ''} missing evidence
+              </span>
+              <span style={{ fontSize: '13px', color: '#DC2626', marginLeft: '8px' }}>
+                — Upload via the Calendar checkpoint popover
+              </span>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Loading */}
       {loading && (

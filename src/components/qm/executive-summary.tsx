@@ -14,6 +14,7 @@ interface ExecutiveSummaryProps {
   orgId?: string;
   overallScore?: number;
   executiveSummary?: string;
+  onRefreshFromCalendar?: () => Promise<void>;
 }
 
 function formatPeriodLabel(period: string): string {
@@ -43,6 +44,7 @@ export function ExecutiveSummary({
   orgId,
   overallScore,
   executiveSummary,
+  onRefreshFromCalendar,
 }: ExecutiveSummaryProps) {
   const [toast, setToast] = useState<string | null>(null);
   const [scoreData, setScoreData] = useState<AuditReadinessScore[]>([]);
@@ -140,12 +142,27 @@ export function ExecutiveSummary({
               {period ? formatPeriodLabel(period) : ''} QM Executive Summary
             </h2>
           </div>
-          <button
-            onClick={() => showToast('PDF generation coming soon')}
-            style={{ padding: '7px 14px', background: '#fff', color: 'var(--g700, #404040)', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '6px', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}
-          >
-            Export as PDF
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {onRefreshFromCalendar && (
+              <button
+                onClick={async () => {
+                  showToast('Refreshing from calendar data...');
+                  await onRefreshFromCalendar();
+                  await fetchScores();
+                  showToast('Scores refreshed from calendar');
+                }}
+                style={{ padding: '7px 14px', background: 'var(--blue-light, #E8F6FA)', color: 'var(--blue-dark, #2A8BA8)', border: '1px solid var(--blue, #3BA7C9)', borderRadius: '6px', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}
+              >
+                Refresh from Calendar
+              </button>
+            )}
+            <button
+              onClick={() => showToast('PDF generation coming soon')}
+              style={{ padding: '7px 14px', background: '#fff', color: 'var(--g700, #404040)', border: '1px solid var(--g300, #D4D4D4)', borderRadius: '6px', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}
+            >
+              Export as PDF
+            </button>
+          </div>
         </div>
 
         <div style={{ borderTop: '1px solid var(--g100, #F5F5F5)', marginBottom: '20px' }} />
